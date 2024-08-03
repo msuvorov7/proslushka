@@ -45,7 +45,7 @@ class QuartzNet(nn.Module):
             pad = block_k[i] // 2
             k = block_k[i]
 
-            print(i, num_in, num_out, pad, k)
+            # print(i, num_in, num_out, pad, k)
 
             self.B.append(JasperBlock(num_in, num_out, k, pad))
 
