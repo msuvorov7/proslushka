@@ -4,7 +4,7 @@ import sys
 import zipfile
 
 
-fileDir = os.path.join(os.path.dirname(os.path.realpath(__file__)), '../')
+fileDir = os.path.join(os.path.dirname(os.path.realpath(__file__)), '../../')
 
 sys.path.insert(0, os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -17,10 +17,10 @@ def create_archive(models_path: str) -> None:
     :param models_path: путь до моделей
     :return:
     """
-    with zipfile.ZipFile('serverless_functions.zip', mode='w', compression=zipfile.ZIP_DEFLATED) as zf:
-        zf.write('run.py', 'run.py')
-        zf.write('librosa.py', 'librosa.py')
-        zf.write('requirements.txt', 'requirements.txt')
+    with zipfile.ZipFile('../serverless_functions.zip', mode='w', compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.write('app/run.py', 'run.py')
+        zf.write('app/librosa.py', 'librosa.py')
+        zf.write('app/requirements.txt', 'requirements.txt')
         zf.write(models_path + 'quartznet_15x5.onnx', 'models/quartznet_15x5.onnx')
 
 
