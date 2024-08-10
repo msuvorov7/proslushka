@@ -46,6 +46,12 @@ CHARS: list = [
 INT_TO_CHAR = dict(enumerate(CHARS))
 CHAR_TO_INT = {v: k for k, v in INT_TO_CHAR.items()}
 
+SPEC_AUG = torch.nn.Sequential(
+    # torchaudio.transforms.TimeStretch(0.9, fixed_rate=True),
+    torchaudio.transforms.FrequencyMasking(freq_mask_param=20),
+    torchaudio.transforms.TimeMasking(time_mask_param=10),
+)
+
 
 class ASRDataset(Dataset):
     def __init__(
@@ -60,6 +66,18 @@ class ASRDataset(Dataset):
         speech_augment_prop: float = 0.2,
         reverberation_prop: float = 0.02,
     ):
+        """
+        Датасет для обучения ASR модели. За основу взят датасет Golos от Сбера.
+        :param mode: train or not. Влиет на аугментации
+        :param audio_files: Датафрейм с указанием путей к аудио (audio_filepath), текстом на записи (text), длительностью записи (duration)
+        :param noise_files: Список путей до аудио с шумом
+        :param spec_aug: Аугментации спектрограм
+        :param sr: sample rate
+        :param n_mels: количество mel фильтров
+        :param n_fft: размер окна
+        :param speech_augment_prop: вероятность наложения шума из noise_files
+        :param reverberation_prop: вероятность применения эхо-преобразования
+        """
         super(ASRDataset, self).__init__()
 
         self.mode = mode
@@ -128,9 +146,11 @@ class ASRDataset(Dataset):
         if noise.shape[1] == 0:
             return waveform
 
+        # повторяем шум для наложения на все аудио
         num_repeats = int(waveform.shape[1] / noise.shape[1] + 1)
         noise = noise.repeat((1, num_repeats))
 
+        # обрезаем лишнюю длину шума
         start_ind_noise = np.random.randint(low=0, high=noise.shape[1] - waveform.shape[1])
         noise = noise[:, start_ind_noise: start_ind_noise + waveform.shape[1]]
 
