@@ -46,6 +46,12 @@ CHARS: list = [
 INT_TO_CHAR = dict(enumerate(CHARS))
 CHAR_TO_INT = {v: k for k, v in INT_TO_CHAR.items()}
 
+SPEC_AUG = torch.nn.Sequential(
+    # torchaudio.transforms.TimeStretch(0.9, fixed_rate=True),
+    torchaudio.transforms.FrequencyMasking(freq_mask_param=20),
+    torchaudio.transforms.TimeMasking(time_mask_param=10),
+)
+
 
 class ASRDataset(Dataset):
     def __init__(
