@@ -1,7 +1,4 @@
 import argparse
-import os
-import sys
-
 import torch
 import numpy as np
 import pandas as pd
@@ -10,11 +7,8 @@ import pytorch_lightning as pl
 from torch.utils.data import Dataset, DataLoader
 from pytorch_lightning.callbacks import ModelCheckpoint
 
-sys.path.insert(0, os.path.dirname(
-    os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
-))
-
-from src.features.dataset import ASRDataset, BatchSampler, collate_fn, SPEC_AUG, CHARS
+from src.decoder.greedy_decoder import GreedyCTCDecoder
+from src.features.dataset import ASRDataset, BatchSampler, collate_fn, SPEC_AUG, CHARS, INT_TO_CHAR
 from src.model.quartznet_torch import QuartzNet
 from src.model.quartznet_lightning import QuartzNetLightning, CustomCTCLoss
 
@@ -75,6 +69,7 @@ if __name__ == '__main__':
         callbacks=[checkpoint_callback, ],
         max_epochs=args.max_epochs,
         accumulate_grad_batches=args.accumulate_grad_batches,
+        precision="16-mixed",
         log_every_n_steps=1,
         enable_checkpointing=True,
         enable_progress_bar=True,
@@ -104,6 +99,7 @@ if __name__ == '__main__':
         model = QuartzNetLightning(
             model=pre_trained_model,
             criterion=CustomCTCLoss(blank=len(CHARS)),
+            decoder=GreedyCTCDecoder(labels=INT_TO_CHAR, blank=len(CHARS)),
         )
 
         trainer.fit(
