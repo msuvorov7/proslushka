@@ -1,6 +1,10 @@
 import os
 import json
 import logging
+import subprocess
+import sys
+
+from itertools import groupby
 
 from aiogram import Bot, types
 from aiogram import Dispatcher
@@ -12,7 +16,13 @@ import onnxruntime
 from librosa import melspectrogram, resample, preemphasis
 
 onnx_model = onnxruntime.InferenceSession('models/quartznet_15x5.onnx')
-log = logging.getLogger(__name__)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.StreamHandler(sys.stdout)
+    ]
+)
 
 
 chars = [
@@ -79,10 +89,48 @@ def log_softmax(x, axis=None):
     return out
 
 
-async def speech_to_text(message: types.Message):
+async def read_voice(message: types.Message):
     file_path = f'/tmp/{message.voice.file_id}.ogg'
+    # opus_file_path = f'/tmp/{message.voice.file_id}.opus'
     await message.voice.download(destination_file=file_path)
 
+    # subprocess.run(['ffmpeg', '-i', file_path, '-c:a', 'libopus', '-b:a', '36k', '-ac', '1', '-v', '16', opus_file_path])
+    logging.info('audio converted')
+
+    decoded = speech_to_text(file_path)
+
+    if len(decoded) < 1_000:
+        await message.reply(
+            f'message duration: {message.voice.duration},\n{decoded}'
+        )
+    else:
+        with open(f'/tmp/{message.voice.file_id}.txt', mode='w', encoding='utf-8') as file:
+            file.write(decoded)
+        await message.answer_document(document=types.InputFile(f'/tmp/{message.voice.file_id}.txt'))
+
+
+async def read_audio(message: types.Message):
+    file_path = f'/tmp/{message.audio.file_name}'
+    # opus_file_path = f'/tmp/{message.audio.file_id}.opus'
+    await message.audio.download(destination_file=file_path)
+
+    # https://yandex.cloud/ru/docs/functions/tutorials/video-converting-queue
+    # subprocess.run(['ffmpeg', '-i', file_path, '-c:a', 'libopus', '-b:a', '36k', '-ac', '1', '-v', '16', opus_file_path])
+    logging.info('audio converted')
+
+    decoded = speech_to_text(file_path)
+
+    if len(decoded) < 1_000:
+        await message.reply(
+            f'message duration: {message.audio.duration},\n{decoded}'
+        )
+    else:
+        with open(f'/tmp/{message.audio.file_id}.txt', mode='w', encoding='utf-8') as file:
+            file.write(decoded)
+        await message.answer_document(document=types.InputFile(f'/tmp/{message.audio.file_id}.txt'))
+
+
+def speech_to_text(file_path: str) -> str:
     wav, sr = sf.read(file_path)
     wav = resample(wav, orig_sr=sr, target_sr=16000)
     wav = preemphasis(wav, coef=0.97)
@@ -120,9 +168,10 @@ async def register_handlers(dp: Dispatcher):
     """Registration all handlers before processing update."""
 
     dp.register_message_handler(welcome_start, commands=['start'])
-    dp.register_message_handler(speech_to_text, content_types=[types.ContentType.VOICE])
+    dp.register_message_handler(read_voice, content_types=[types.ContentType.VOICE])
+    dp.register_message_handler(read_audio, content_types=[types.ContentType.AUDIO])
 
-    log.debug('Handlers are registered.')
+    logging.debug('Handlers are registered.')
 
 
 async def process_event(event, dp: Dispatcher):
@@ -132,7 +181,7 @@ async def process_event(event, dp: Dispatcher):
     """
 
     update = json.loads(event['body'])
-    log.debug('Update: ' + str(update))
+    logging.debug('Update: ' + str(update))
 
     Bot.set_current(dp.bot)
     update = types.Update.to_object(update)
