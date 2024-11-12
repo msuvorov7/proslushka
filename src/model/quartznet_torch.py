@@ -1,4 +1,6 @@
+import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 
 class QuartzNet(nn.Module):
@@ -7,7 +9,8 @@ class QuartzNet(nn.Module):
         R_repeat: int,
         in_channels: int,
         out_channels: int,
-        dropout: float = 0.0
+        dropout: float = 0.0,
+        include_se_block: bool = False,
     ):
         """
         QuartzNet model from https://arxiv.org/pdf/1910.10261
@@ -15,6 +18,7 @@ class QuartzNet(nn.Module):
         :param in_channels: input dim of mel spectrogram (n_mels)
         :param out_channels: output dim (vocab size plus blank token)
         :param dropout: dropout probability
+        :param include_se_block: add SqueezeExcite block to ending JasperBlock
         """
         super(QuartzNet, self).__init__()
 
@@ -47,10 +51,11 @@ class QuartzNet(nn.Module):
 
             # print(i, num_in, num_out, pad, k)
 
-            self.B.append(JasperBlock(num_in, num_out, k, pad))
-
+            b_bloks = [JasperBlock(num_in, num_out, k, pad, include_se_block=include_se_block), ]
             for rep in range(R_repeat):
-                self.B.append(JasperBlock(num_out, num_out, k, pad))
+                b_bloks.append(JasperBlock(num_out, num_out, k, pad, include_se_block=include_se_block))
+
+            self.B.append(nn.Sequential(*b_bloks))
 
         self.C2 = nn.Sequential(
             nn.Conv1d(
@@ -92,6 +97,7 @@ class JasperBlock(nn.Module):
         k: int,
         padding: int,
         dropout: float = 0.0,
+        include_se_block: bool = False,
     ):
         """
         QuartzNet B-block
@@ -100,15 +106,16 @@ class JasperBlock(nn.Module):
         :param k: kernel size
         :param padding: padding
         :param dropout: dropout probability
+        :param include_se_block: add SqueezeExcite block to ending
         """
         super(JasperBlock, self).__init__()
 
         self.blocks = nn.Sequential(
-            ConvBlock(in_channels, out_channels, k, padding),
-            ConvBlock(out_channels, out_channels, k, padding),
-            ConvBlock(out_channels, out_channels, k, padding),
-            ConvBlock(out_channels, out_channels, k, padding),
-            ConvBlock(out_channels, out_channels, k, padding),
+            ConvBlock(in_channels,  out_channels, k, padding, is_last=False),
+            ConvBlock(out_channels, out_channels, k, padding, is_last=False),
+            ConvBlock(out_channels, out_channels, k, padding, is_last=False),
+            ConvBlock(out_channels, out_channels, k, padding, is_last=False),
+            ConvBlock(out_channels, out_channels, k, padding, is_last=True, include_se_block=include_se_block),
         )
 
         self.residual = nn.Sequential(
@@ -132,11 +139,13 @@ class ConvBlock(nn.Module):
         out_channels: int,
         k: int,
         padding: int,
-        dropout: float = 0.0
+        dropout: float = 0.0,
+        is_last: bool = False,
+        include_se_block: bool = False,
     ):
         super(ConvBlock, self).__init__()
 
-        self.layers = nn.Sequential(
+        layers = [
             nn.Conv1d(
                 in_channels,
                 in_channels,
@@ -153,7 +162,61 @@ class ConvBlock(nn.Module):
             nn.BatchNorm1d(out_channels, eps=0.001, momentum=0.1, affine=True),
             nn.ReLU(),
             nn.Dropout(p=dropout),
-        )
+        ]
+
+        if is_last:
+            if include_se_block:
+                self.layers = nn.Sequential(
+                    *(layers[:-2] + [SqueezeExcite(out_channels, 8), ])
+                )
+            else:
+                self.layers = nn.Sequential(*layers[:-2])
+        else:
+            self.layers = nn.Sequential(*layers)
 
     def forward(self, x):
         return self.layers(x)
+
+
+class SqueezeExcite(nn.Module):
+    def __init__(
+            self,
+            in_channels: int,
+            reduction_ratio: int,
+            context_window: int = -1,
+            interpolation_mode: str = 'nearest',
+    ):
+        super().__init__()
+
+        self.context_window = context_window
+        self.interpolation_mode = interpolation_mode
+
+        self.fc = nn.Sequential(
+            nn.Linear(
+                in_channels,
+                in_channels // reduction_ratio,
+                bias=False,
+            ),
+            nn.ReLU(inplace=True),
+            nn.Linear(
+                in_channels // reduction_ratio,
+                in_channels,
+                bias=False
+            ),
+        )
+        self.gap = nn.AdaptiveAvgPool1d(output_size=1)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        batch_size, channels, timestamps = x.size()
+
+        y = self.gap(x)
+        y = y.transpose(1, -1)
+        y = self.fc(y)
+        y = y.transpose(1, -1)
+
+        if self.context_window > 0:
+            y = F.interpolate(y, size=timestamps, mode=self.interpolation_mode)
+
+        y = self.sigmoid(y)
+        return x * y
