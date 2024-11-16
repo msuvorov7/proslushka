@@ -95,6 +95,8 @@ class ASRDataset(Dataset):
 
         self.rir = None
 
+        self.speed_perturb = torchaudio.transforms.SpeedPerturbation(self.sr, [0.9, 1.1, 1.2, 1.0, 1.0])
+
         self.to_melspec = torchaudio.transforms.MelSpectrogram(
             sample_rate=self.sr,
             win_length=320,
@@ -170,6 +172,9 @@ class ASRDataset(Dataset):
         waveform = torchaudio.transforms.Resample(sample_rate, self.sr)(waveform)
 
         if self.mode == "train":
+            # Applies the speed perturbation augmentation
+            waveform, _ = self.speed_perturb(waveform)
+
             # add random Normal(0, 1) noise
             waveform = waveform + torch.randn_like(waveform) * 1e-5
 
