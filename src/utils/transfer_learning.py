@@ -1,14 +1,9 @@
 import logging
-import os
 import sys
 
 import torch
 import argparse
 import nemo.collections.asr as nemo_asr
-
-sys.path.insert(0, os.path.dirname(
-    os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
-))
 
 from src.model.quartznet_torch import QuartzNet
 from src.features.dataset import CHARS
@@ -64,6 +59,7 @@ if __name__ == '__main__':
         R_repeat=2,
         in_channels=64,
         out_channels=len(CHARS) + 1,  # plus 1 for blank token (ctc loss)
+        include_se_block=False,
     )
 
     fitted_state_dict = init_weights(source_model=fitted_quartznet, target_model=dummy_model)
