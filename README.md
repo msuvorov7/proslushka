@@ -19,7 +19,9 @@ ASR model based on [QuartzNet15x5](https://arxiv.org/pdf/1910.10261) for Russian
 [Код](src/utils/transfer_learning.py) для переноса весов.
 
 Дополнительно проводились эксперименты с добавлением `SqueezeExcite` в конец блоков `Jasper`.
-Идея возникла из схожей с QuartzNet архитектуры - [Citrinet](https://arxiv.org/pdf/2104.01721)
+Идея возникла из схожей с QuartzNet архитектуры - [Citrinet](https://arxiv.org/pdf/2104.01721).
+По итогу нет однозначного улучшения, часть метрик на валидации лучше, но появляются "лишние"
+звуки (как пример: "годные" перешло в "глодные").
 
 ## Inference
 Обученную модель в формате `ONNX` предполагается использовать на CPU в режиме `serverless`
