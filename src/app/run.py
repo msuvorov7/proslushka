@@ -4,8 +4,6 @@ import logging
 import subprocess
 import sys
 
-from itertools import groupby
-
 from aiogram import Bot, types
 from aiogram import Dispatcher
 
@@ -132,6 +130,9 @@ async def read_audio(message: types.Message):
 
 def speech_to_text(file_path: str) -> str:
     wav, sr = sf.read(file_path)
+    # stereo to mono
+    if wav.ndim == 2:
+        wav = wav.mean(axis=1)
     wav = resample(wav, orig_sr=sr, target_sr=16000)
     wav = preemphasis(wav, coef=0.97)
 
