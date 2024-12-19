@@ -157,11 +157,15 @@ def speech_to_text(file_path: str) -> str:
     output = log_softmax(output, axis=2)
     output = output.transpose(1, 0, 2)
 
-    decoded = ''.join([int_to_char.get(i, '') for i in output.argmax(axis=2).tolist()[0]])
+    raw_text = [int_to_char.get(i, '') for i in output.argmax(axis=2).tolist()[0]]
+    processed_text = []
+    # deduplicate
+    for i in range(len(raw_text) - 1):
+        if raw_text[i] != raw_text[i + 1]:
+            processed_text.append(raw_text[i])
+    processed_text.append(raw_text[-1])
 
-    await message.reply(
-        f'message duration: {message.voice.duration},\n{sr},\n{mel_spec.shape}\n{decoded}'
-    )
+    return ''.join(processed_text)
 
 
 # Functions for Yandex.Cloud
