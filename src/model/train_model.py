@@ -82,7 +82,7 @@ if __name__ == '__main__':
             train_manifest['text'].drop_duplicates().values,
             tokenizer.CITRINET_TRAINER,
         )
-    model_tokenizer.save(f"{args.model}_tokenizer.json")
+    model_tokenizer.save(f"models/{args.model}_tokenizer.json")
 
     train_dataset = dataset.AudioDataset(
         tokenizer=model_tokenizer,
