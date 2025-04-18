@@ -195,7 +195,7 @@ class JasperBlock(nn.Module):
 
 class ConvBlock(nn.Module):
     def __init__(self, in_channels, out_channels, k, padding):
-        super(ConvBlock, self).__init__()
+        super().__init__()
 
         self.layers = nn.Sequential(
             nn.Conv1d(
