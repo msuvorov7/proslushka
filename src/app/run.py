@@ -3,6 +3,7 @@ import json
 import logging
 import subprocess
 import sys
+from itertools import groupby
 
 from aiogram import Bot, types
 from aiogram import Dispatcher
@@ -12,8 +13,11 @@ import numpy as np
 import onnxruntime
 
 from librosa import melspectrogram, resample, preemphasis
+from tokenizers import Tokenizer
 
-onnx_model = onnxruntime.InferenceSession('models/quartznet_15x5.onnx')
+onnx_model = onnxruntime.InferenceSession('models/model.onnx')
+tokenizer = Tokenizer.from_file("models/tokenizer.json")
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -21,45 +25,6 @@ logging.basicConfig(
         logging.StreamHandler(sys.stdout)
     ]
 )
-
-
-chars = [
-    ' ',
-    'а',
-    'б',
-    'в',
-    'г',
-    'д',
-    'е',
-    'ж',
-    'з',
-    'и',
-    'й',
-    'к',
-    'л',
-    'м',
-    'н',
-    'о',
-    'п',
-    'р',
-    'с',
-    'т',
-    'у',
-    'ф',
-    'х',
-    'ц',
-    'ч',
-    'ш',
-    'щ',
-    'ъ',
-    'ы',
-    'ь',
-    'э',
-    'ю',
-    'я',
-]
-int_to_char = dict(enumerate(chars))
-char_to_int = {v: k for k, v in int_to_char.items()}
 
 
 async def welcome_start(message):
@@ -146,7 +111,7 @@ def speech_to_text(file_path: str) -> str:
         pad_mode='reflect',
         power=2,
         fmin=0,
-        n_mels=64,
+        n_mels=80,
         norm='slaney',
         center=True
     )
@@ -157,15 +122,10 @@ def speech_to_text(file_path: str) -> str:
     output = log_softmax(output, axis=2)
     output = output.transpose(1, 0, 2)
 
-    raw_text = [int_to_char.get(i, '') for i in output.argmax(axis=2).tolist()[0]]
-    processed_text = []
-    # deduplicate
-    for i in range(len(raw_text) - 1):
-        if raw_text[i] != raw_text[i + 1]:
-            processed_text.append(raw_text[i])
-    processed_text.append(raw_text[-1])
+    out = output.argmax(axis=2).tolist()[0]
+    out = [key for key, _group in groupby(out)]
 
-    return ''.join(processed_text)
+    return tokenizer.decode(out).replace(' ##', '')
 
 
 # Functions for Yandex.Cloud

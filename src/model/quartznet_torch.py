@@ -20,7 +20,10 @@ class QuartzNet(nn.Module):
         :param dropout: dropout probability
         :param include_se_block: add SqueezeExcite block to ending JasperBlock
         """
-        super(QuartzNet, self).__init__()
+        super().__init__()
+        self.R_repeat = R_repeat
+        self.in_channels = in_channels
+        self.out_channels = out_channels
 
         block_channels: list = [256, 256, 256, 512, 512, 512]
         block_k: list = [33, 39, 51, 63, 75]
@@ -108,7 +111,7 @@ class JasperBlock(nn.Module):
         :param dropout: dropout probability
         :param include_se_block: add SqueezeExcite block to ending
         """
-        super(JasperBlock, self).__init__()
+        super().__init__()
 
         self.blocks = nn.Sequential(
             ConvBlock(in_channels,  out_channels, k, padding, is_last=False),
@@ -143,7 +146,7 @@ class ConvBlock(nn.Module):
         is_last: bool = False,
         include_se_block: bool = False,
     ):
-        super(ConvBlock, self).__init__()
+        super().__init__()
 
         layers = [
             nn.Conv1d(

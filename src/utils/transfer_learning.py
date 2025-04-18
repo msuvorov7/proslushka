@@ -6,7 +6,7 @@ import argparse
 import nemo.collections.asr as nemo_asr
 
 from src.model.quartznet_torch import QuartzNet
-from src.features.dataset import CHARS
+from src.features.tokenizer import QUARTZNET_TOKENIZER
 
 
 logging.basicConfig(
@@ -58,7 +58,7 @@ if __name__ == '__main__':
     dummy_model = QuartzNet(
         R_repeat=2,
         in_channels=64,
-        out_channels=len(CHARS) + 1,  # plus 1 for blank token (ctc loss)
+        out_channels=QUARTZNET_TOKENIZER.get_vocab_size() + 1,  # plus one for blank token (ctc loss)
         include_se_block=False,
     )
 
