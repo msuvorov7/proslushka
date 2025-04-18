@@ -8,7 +8,6 @@ import numpy as np
 import scipy
 import soxr
 from numpy.lib.stride_tricks import as_strided
-from numpy import fft
 
 from typing import Optional, Any, Tuple, Union, Sequence, List
 
@@ -331,11 +330,11 @@ def stft(
     # Fill in the warm-up
     if center and extra > 0:
         off_start = y_frames_pre.shape[-1]
-        stft_matrix[..., :off_start] = fft.rfft(fft_window * y_frames_pre, axis=-2)
+        stft_matrix[..., :off_start] = np.fft.rfft(fft_window * y_frames_pre, axis=-2)
 
         off_end = y_frames_post.shape[-1]
         if off_end > 0:
-            stft_matrix[..., -off_end:] = fft.rfft(fft_window * y_frames_post, axis=-2)
+            stft_matrix[..., -off_end:] = np.fft.rfft(fft_window * y_frames_post, axis=-2)
     else:
         off_start = 0
 
@@ -347,7 +346,7 @@ def stft(
     for bl_s in range(0, y_frames.shape[-1], n_columns):
         bl_t = min(bl_s + n_columns, y_frames.shape[-1])
 
-        stft_matrix[..., bl_s + off_start : bl_t + off_start] = fft.rfft(
+        stft_matrix[..., bl_s + off_start : bl_t + off_start] = np.fft.rfft(
             fft_window * y_frames[..., bl_s:bl_t], axis=-2
         )
     return stft_matrix
@@ -737,3 +736,15 @@ def resample(
         y_hat /= np.sqrt(ratio)
 
     return np.asarray(y_hat, dtype=y.dtype)
+
+
+def to_mono(y: np.ndarray) -> np.ndarray:
+    """
+    Convert an audio signal to mono by averaging samples across channels.
+    https://iver56.github.io/audiomentations/guides/multichannel_audio_array_shapes/
+
+    :param y: (frames x channels) NumPy array
+    """
+    if y.ndim == 2:
+        return y.mean(axis=1)
+    return y

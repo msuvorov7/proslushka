@@ -3,19 +3,16 @@ import json
 import logging
 import subprocess
 import sys
-from itertools import groupby
+import onnxruntime
 
 from aiogram import Bot, types
 from aiogram import Dispatcher
 
-import soundfile as sf
-import numpy as np
-import onnxruntime
-
-from librosa import melspectrogram, resample, preemphasis
 from tokenizers import Tokenizer
 
-onnx_model = onnxruntime.InferenceSession('models/model.onnx')
+import lib.asr as asr
+
+onnx_model = onnxruntime.InferenceSession("models/model.onnx")
 tokenizer = Tokenizer.from_file("models/tokenizer.json")
 
 logging.basicConfig(
@@ -31,101 +28,45 @@ async def welcome_start(message):
     await message.answer('Hello!\nSend audio')
 
 
-def log_softmax(x, axis=None):
-
-    x_max = np.amax(x, axis=axis, keepdims=True)
-
-    if x_max.ndim > 0:
-        x_max[~np.isfinite(x_max)] = 0
-    elif not np.isfinite(x_max):
-        x_max = 0
-
-    tmp = x - x_max
-    exp_tmp = np.exp(tmp)
-
-    # suppress warnings about log of zero
-    with np.errstate(divide='ignore'):
-        s = np.sum(exp_tmp, axis=axis, keepdims=True)
-        out = np.log(s)
-
-    out = tmp - out
-    return out
-
-
 async def read_voice(message: types.Message):
     file_path = f'/tmp/{message.voice.file_id}.ogg'
-    # opus_file_path = f'/tmp/{message.voice.file_id}.opus'
     await message.voice.download(destination_file=file_path)
 
-    # subprocess.run(['ffmpeg', '-i', file_path, '-c:a', 'libopus', '-b:a', '36k', '-ac', '1', '-v', '16', opus_file_path])
-    logging.info('audio converted')
+    decoded_speech = asr.speech_to_text(file_path, onnx_model, tokenizer)
 
-    decoded = speech_to_text(file_path)
-
-    if len(decoded) < 1_000:
+    if len(decoded_speech) < 1_000:
         await message.reply(
-            f'message duration: {message.voice.duration},\n{decoded}'
+            f'message duration: {message.voice.duration},\n{decoded_speech}'
         )
     else:
         with open(f'/tmp/{message.voice.file_id}.txt', mode='w', encoding='utf-8') as file:
-            file.write(decoded)
+            file.write(decoded_speech)
         await message.answer_document(document=types.InputFile(f'/tmp/{message.voice.file_id}.txt'))
 
 
 async def read_audio(message: types.Message):
+    _, file_extension = os.path.splitext(message.audio.file_name)
     file_path = f'/tmp/{message.audio.file_name}'
-    # opus_file_path = f'/tmp/{message.audio.file_id}.opus'
+    
     await message.audio.download(destination_file=file_path)
 
-    # https://yandex.cloud/ru/docs/functions/tutorials/video-converting-queue
-    # subprocess.run(['ffmpeg', '-i', file_path, '-c:a', 'libopus', '-b:a', '36k', '-ac', '1', '-v', '16', opus_file_path])
-    logging.info('audio converted')
+    if file_extension not in ('.opus', '.ogg', '.mp3'):
+        opus_file_path = f'/tmp/{message.audio.file_id}.opus'
+        # https://yandex.cloud/ru/docs/functions/tutorials/video-converting-queue
+        subprocess.run(['ffmpeg', '-i', file_path, '-c:a', 'libopus', '-b:a', '36k', '-ac', '1', '-v', '16', opus_file_path])
+        logging.info('audio converted')
+        file_path = opus_file_path
 
-    decoded = speech_to_text(file_path)
+    decoded_speech = asr.speech_to_text(file_path, onnx_model, tokenizer)
 
-    if len(decoded) < 1_000:
+    if len(decoded_speech) < 1_000:
         await message.reply(
-            f'message duration: {message.audio.duration},\n{decoded}'
+            f'message duration: {message.audio.duration},\n{decoded_speech}'
         )
     else:
         with open(f'/tmp/{message.audio.file_id}.txt', mode='w', encoding='utf-8') as file:
-            file.write(decoded)
+            file.write(decoded_speech)
         await message.answer_document(document=types.InputFile(f'/tmp/{message.audio.file_id}.txt'))
-
-
-def speech_to_text(file_path: str) -> str:
-    wav, sr = sf.read(file_path)
-    # stereo to mono
-    if wav.ndim == 2:
-        wav = wav.mean(axis=1)
-    wav = resample(wav, orig_sr=sr, target_sr=16000)
-    wav = preemphasis(wav, coef=0.97)
-
-    mel_spec = melspectrogram(
-        y=wav,
-        sr=16_000,
-        n_fft=512,
-        hop_length=160,
-        win_length=320,
-        window='hann',
-        pad_mode='reflect',
-        power=2,
-        fmin=0,
-        n_mels=80,
-        norm='slaney',
-        center=True
-    )
-
-    model_input = {onnx_model.get_inputs()[0].name: np.log(mel_spec)[np.newaxis, :, :].astype(np.float32)}
-    model_output = onnx_model.run(None, model_input)[0]
-    output = model_output.transpose(2, 0, 1)
-    output = log_softmax(output, axis=2)
-    output = output.transpose(1, 0, 2)
-
-    out = output.argmax(axis=2).tolist()[0]
-    out = [key for key, _group in groupby(out)]
-
-    return tokenizer.decode(out).replace(' ##', '')
 
 
 # Functions for Yandex.Cloud
