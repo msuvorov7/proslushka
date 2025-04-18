@@ -21,7 +21,8 @@ def create_archive(models_path: str) -> None:
         zf.write('src/app/run.py', 'run.py')
         zf.write('src/app/librosa.py', 'librosa.py')
         zf.write('src/app/requirements.txt', 'requirements.txt')
-        zf.write(models_path + 'quartznet_15x5_2.onnx', 'models/quartznet_15x5.onnx')
+        zf.write(models_path + 'citrinet_384_10epoch.onnx', 'models/model.onnx')
+        zf.write(models_path + 'tokenizer.json', 'models/tokenizer.json')
         zf.write('artifacts/ffmpeg-6.0.1-amd64-static/ffmpeg', 'ffmpeg')
 
 
