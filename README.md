@@ -40,6 +40,11 @@ ASR модель для работы с голосовыми сообщения�
 ## Commands
 
 ```shell
+# конвертировать wav в opus формат
+sudo apt-get install parallel
+sudo apt install ffmpeg
+find . -type f -name "*.wav" | parallel ffmpeg -i {} -c:a libvorbis -q:a 2 {.}.ogg
+
 # перенос весов от модели Сбера (без включения SqueezeExcite)
 python -m src.utils.transfer_learning \
     --fitted_nemo_model=models/QuartzNet15x5_golos.nemo \
