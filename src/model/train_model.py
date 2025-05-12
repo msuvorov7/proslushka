@@ -7,6 +7,7 @@ import pandas as pd
 
 import torch
 import pytorch_lightning as pl
+from tokenizers import Tokenizer
 
 import src.decoder.greedy_decoder as greedy_decoder
 import src.features.dataset as dataset
@@ -17,7 +18,6 @@ import src.model.citrinet_torch as citrinet
 import src.model.lightning_model as lightning_model
 
 torch.set_num_threads(8)
-os.environ['TOKENIZERS_PARALLELISM'] = 'false'
 
 logging.basicConfig(
     level=logging.INFO,
@@ -74,6 +74,7 @@ if __name__ == '__main__':
     valid_manifest = prepare_manifest(valid_manifest, 0.5, 41)
     logging.info('manifests prepared')
 
+    os.environ['TOKENIZERS_PARALLELISM'] = 'true'
     if args.model == 'quartznet':
         model_tokenizer = tokenizer.QUARTZNET_TOKENIZER
     elif args.model == 'citrinet':
@@ -83,6 +84,8 @@ if __name__ == '__main__':
             tokenizer.CITRINET_TRAINER,
         )
     model_tokenizer.save(f"models/{args.model}_tokenizer.json")
+    os.environ['TOKENIZERS_PARALLELISM'] = 'false'
+    # model_tokenizer = Tokenizer.from_file(f"models/{args.model}_tokenizer.json")
 
     train_dataset = dataset.AudioDataset(
         tokenizer=model_tokenizer,
@@ -200,7 +203,7 @@ if __name__ == '__main__':
     logging.info('state dict saved in models/')
 
     # save in onnx format
-    dummy_input = torch.randn(1, model.model.in_channels , 256, dtype=torch.float32)
+    dummy_input = torch.randn(1, model.model.in_channels, 256, dtype=torch.float32)
     torch.onnx.export(
         model.model.eval().to('cpu'),
         dummy_input,
