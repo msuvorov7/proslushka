@@ -1,3 +1,4 @@
 models/*
 artifacts/*
 lightning_logs/*
+**/__pycache__/
