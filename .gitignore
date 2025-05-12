@@ -2,3 +2,4 @@ models/*
 artifacts/*
 lightning_logs/*
 **/__pycache__/
+broken.txt
