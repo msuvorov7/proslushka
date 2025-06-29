@@ -9,7 +9,6 @@ import scipy
 import soxr
 from numpy.lib.stride_tricks import as_strided
 
-from typing import Optional, Any, Tuple, Union, Sequence, List
 
 MAX_MEM_BLOCK = 2**8 * 2**10
 
@@ -45,7 +44,7 @@ def get_window(
     window: str,
     Nx: int,
     *,
-    fftbins: Optional[bool] = True,
+    fftbins: bool = True,
 ) -> np.ndarray:
 
     if callable(window):
@@ -69,7 +68,7 @@ def pad_center(
     *,
     size: int,
     axis: int = -1,
-    **kwargs: Any
+    **kwargs
 ) -> np.ndarray:
     kwargs.setdefault("mode", "constant")
 
@@ -87,10 +86,10 @@ def pad_center(
 
 
 def expand_to(
-    x: np.ndarray, *, ndim: int, axes: Union[int, slice, Sequence[int], Sequence[slice]]
+    x: np.ndarray, *, ndim: int, axes
 ) -> np.ndarray:
     # Force axes into a tuple
-    axes_tup: Tuple[int]
+    axes_tup: tuple[int]
     try:
         axes_tup = tuple(axes)  # type: ignore
     except TypeError:
@@ -106,7 +105,7 @@ def expand_to(
             f"Cannot expand x.shape={x.shape} to fewer dimensions ndim={ndim}"
         )
 
-    shape: List[int] = [1] * ndim
+    shape: list[int] = [1] * ndim
     for i, axi in enumerate(axes_tup):
         shape[axi] = x.shape[i]
 
@@ -160,7 +159,7 @@ def frame(
 def dtype_r2c(
     d,
     *,
-    default: Optional[type] = np.complex64
+    default: type = np.complex64
 ) -> np.dtype:
     mapping: dict = {
         np.dtype(np.float32): np.complex64,
@@ -182,13 +181,13 @@ def stft(
     y: np.ndarray,
     *,
     n_fft: int = 2048,
-    hop_length: Optional[int] = None,
-    win_length: Optional[int] = None,
+    hop_length: int = None,
+    win_length: int = None,
     window: str = "hann",
     center: bool = True,
-    dtype: Optional = None,
+    dtype: type = None,
     pad_mode: str = "constant",
-    out: Optional[np.ndarray] = None,
+    out: np.ndarray = None,
 ) -> np.ndarray:
     if win_length is None:
         win_length = n_fft
@@ -354,7 +353,7 @@ def stft(
 
 def hz_to_mel(
     frequencies, *, htk: bool = False
-) -> Union[np.floating[Any], np.ndarray]:
+):
     frequencies = np.asanyarray(frequencies)
 
     if htk:
@@ -386,7 +385,7 @@ def hz_to_mel(
 
 def mel_to_hz(
     mels, *, htk: bool = False
-) -> Union[np.floating[Any], np.ndarray]:
+):
     mels = np.asanyarray(mels)
 
     if htk:
@@ -426,7 +425,7 @@ def mel_frequencies(
     return hz
 
 
-def tiny(x: Union[float, np.ndarray]) -> float:
+def tiny(x: float) -> float:
     # Make sure we have an array view
     x = np.asarray(x)
 
@@ -444,10 +443,10 @@ def tiny(x: Union[float, np.ndarray]) -> float:
 def normalize(
     S: np.ndarray,
     *,
-    norm: Optional[float] = np.inf,
-    axis: Optional[int] = 0,
-    threshold: Optional = None,
-    fill: Optional[bool] = None,
+    norm: float = np.inf,
+    axis: int = 0,
+    threshold: float = None,
+    fill: bool = None,
 ) -> np.ndarray:
     # Avoid div-by-zero
     if threshold is None:
@@ -525,9 +524,9 @@ def mel(
     n_fft: int,
     n_mels: int = 128,
     fmin: float = 0.0,
-    fmax: Optional[float] = None,
+    fmax: float = None,
     htk: bool = False,
-    norm: Optional[Union[str, float]] = "slaney",
+    norm: str = "slaney",
     dtype: np.dtype = np.float32,
 ) -> np.ndarray:
     if fmax is None:
@@ -580,16 +579,16 @@ def mel(
 
 def _spectrogram(
     *,
-    y: Optional[np.ndarray] = None,
-    S: Optional[np.ndarray] = None,
-    n_fft: Optional[int] = 2048,
-    hop_length: Optional[int] = 512,
+    y: np.ndarray = None,
+    S: np.ndarray = None,
+    n_fft: int = 2048,
+    hop_length: int = 512,
     power: float = 1,
-    win_length: Optional[int] = None,
+    win_length: int = None,
     window: str = "hann",
     center: bool = True,
     pad_mode: str = "constant",
-) -> Tuple[np.ndarray, int]:
+) -> tuple:
     if S is not None:
         # Infer n_fft from spectrogram shape, but only if it mismatches
         if n_fft is None or n_fft // 2 + 1 != S.shape[-2]:
@@ -622,17 +621,17 @@ def _spectrogram(
 
 def melspectrogram(
     *,
-    y: Optional[np.ndarray] = None,
+    y: np.ndarray = None,
     sr: float = 22050,
-    S: Optional[np.ndarray] = None,
+    S: np.ndarray = None,
     n_fft: int = 2048,
     hop_length: int = 512,
-    win_length: Optional[int] = None,
+    win_length: int = None,
     window: str = "hann",
     center: bool = True,
     pad_mode: str = "constant",
     power: float = 2.0,
-    **kwargs: Any,
+    **kwargs,
 ) -> np.ndarray:
 
     S, n_fft = _spectrogram(
