@@ -3,3 +3,4 @@ artifacts/*
 lightning_logs/*
 **/__pycache__/
 broken.txt
+.DS_Store

@@ -26,7 +26,7 @@ def log_softmax(x, axis=None):
     return tmp - out
 
 
-def split_audio_on_batch(labels: list[dict], min_duration: float, audio_len: int) -> list[dict]:
+def split_audio_on_batch(labels: list, min_duration: float, audio_len: int) -> list:
     batches = [
         {
             'speech_begin_ids': 0,

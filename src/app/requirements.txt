@@ -1,6 +1,6 @@
-aiogram~=2.24.0
+aiogram==2.24.0
 onnxruntime~=1.18.1
 soundfile~=0.12.1
 scipy
 soxr
-tokenizers
+tokenizers~=0.20.0
