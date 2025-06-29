@@ -40,7 +40,7 @@ class ASRLightning(pl.LightningModule):
     def forward(self, x):
         return self.model(x)
     
-    def evaluate(self, batch, metric_func) -> tuple:
+    def evaluate(self, batch, mode: str) -> tuple:
         melspecs = batch[0]
         texts = batch[1]
         input_lengths = batch[2]
@@ -58,29 +58,32 @@ class ASRLightning(pl.LightningModule):
         )
         
         # eval metrics
-        output = output.permute(1, 0, 2)
-        predicted_text = []
-        real_text = []
-        for pred, true in zip(self.decoder(output), self.decoder.decode_text(texts)):
-            if (pred != "") and (true != ""):
-                predicted_text.append(pred)
-                real_text.append(true)
+        if mode == 'valid':
+            metric_func = self.valid_metric
+            output = output.permute(1, 0, 2)
+            predicted_text = []
+            real_text = []
+            for pred, true in zip(self.decoder(output), self.decoder.decode_text(texts)):
+                if (pred != "") and (true != ""):
+                    predicted_text.append(pred)
+                    real_text.append(true)
+            
+            if (len(predicted_text) > 0) and (len(real_text) > 0):
+                metric = metric_func(predicted_text, real_text)
+            else:
+                metric = metric_func(['error'], ['error'])
+            return loss, metric
         
-        if (len(predicted_text) > 0) and (len(real_text) > 0):
-            metric = metric_func(predicted_text, real_text)
-        else:
-            metric = metric_func(['error'], ['error'])
-        
-        return loss, metric
+        return loss, None
     
     def training_step(self, batch, batch_idx):
-        train_loss, train_metric = self.evaluate(batch, self.train_metric)
+        train_loss, train_metric = self.evaluate(batch, 'train')
         self.log("train_loss", train_loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        self.log_dict(train_metric, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        # self.log_dict(train_metric, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         return train_loss
 
     def validation_step(self, batch, batch_idx, dataloader_idx=0):
-        valid_loss, valid_metric = self.evaluate(batch, self.valid_metric)
+        valid_loss, valid_metric = self.evaluate(batch, 'valid')
         self.log("valid_loss", valid_loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         self.log_dict(valid_metric, on_step=True, on_epoch=True, prog_bar=True, logger=True)
         return valid_loss
@@ -96,7 +99,7 @@ class ASRLightning(pl.LightningModule):
             optimizer=optimizer,
             max_iter=self.t_max,
             warmup_factor=1.0 / 10.0,
-            warmup_iters=750,
+            warmup_iters=1000,
         )
         
         return (

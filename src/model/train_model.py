@@ -19,6 +19,7 @@ import src.model.conformer_torch as conformer
 import src.model.lightning_model as lightning_model
 
 torch.set_num_threads(8)
+# torch.set_float32_matmul_precision('medium')
 
 logging.basicConfig(
     level=logging.INFO,
@@ -73,7 +74,7 @@ if __name__ == '__main__':
 
     train_manifest = prepare_manifest(train_manifest, 0.5, 41)
     valid_manifest = prepare_manifest(valid_manifest, 0.5, 41)
-    logging.info('manifests prepared')
+    logging.info(f'manifests prepared: {train_manifest.duration.sum() / 3600}')
 
     os.environ['TOKENIZERS_PARALLELISM'] = 'true'
     if args.model == 'quartznet':
