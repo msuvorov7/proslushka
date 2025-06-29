@@ -15,6 +15,7 @@ import src.features.tokenizer as tokenizer
 import src.model.loss as loss
 import src.model.quartznet_torch as quartznet
 import src.model.citrinet_torch as citrinet
+import src.model.conformer_torch as conformer
 import src.model.lightning_model as lightning_model
 
 torch.set_num_threads(8)
@@ -55,7 +56,7 @@ if __name__ == '__main__':
     args_parser.add_argument('--accumulate_grad_batches', default=64, dest='accumulate_grad_batches', type=int)
     args = args_parser.parse_args()
 
-    assert args.model in ('quartznet', 'citrinet')
+    assert args.model in ('quartznet', 'citrinet', 'conformer')
 
     if args.train_manifest.endswith('.jsonl'):
         # example for train_opus/manifest.jsonl from Golos Dataset
@@ -82,6 +83,12 @@ if __name__ == '__main__':
         tokenizer.CITRINET_TOKENIZER.train_from_iterator(
             train_manifest['text'].drop_duplicates().values,
             tokenizer.CITRINET_TRAINER,
+        )
+    elif args.model == 'conformer':
+        model_tokenizer = tokenizer.CONFORMER_TOKENIZER
+        tokenizer.CONFORMER_TOKENIZER.train_from_iterator(
+            train_manifest['text'].drop_duplicates().values,
+            tokenizer.CONFORMER_TRAINER,
         )
     model_tokenizer.save(f"models/{args.model}_tokenizer.json")
     os.environ['TOKENIZERS_PARALLELISM'] = 'false'
@@ -130,10 +137,10 @@ if __name__ == '__main__':
     )
 
     checkpoint_callback = pl.callbacks.ModelCheckpoint(
-        dirpath="./quartznet_ckpts",
+        dirpath="./ckpts",
         save_last=True,
         save_top_k=-1,
-        filename="quartznet-{epoch:02d}-{val_loss:.3f}",
+        filename="{args.model}-{epoch:02d}-{val_loss:.3f}",
         every_n_epochs=1,
     )
     lr_callback =pl.callbacks.LearningRateMonitor(
@@ -183,13 +190,31 @@ if __name__ == '__main__':
                 out_channels=model_tokenizer.get_vocab_size() + 1,  # plus one for blank token (ctc loss)
             )
             # pre_trained_model.load_state_dict(torch.load('models/citrinet384_10epoch.state_dict'))
+        elif args.model == 'conformer':
+            pre_trained_model = conformer.Conformer(
+                in_dim=1,
+                n_mels=80,
+                encoder_dim=176,
+                num_blocks=16,
+                num_heads=4,
+                dropout=0.1,
+                out_dim=model_tokenizer.get_vocab_size() + 1,  # plus one for blank token (ctc loss)
+            )
+            pre_trained_model.load_state_dict(torch.load('models/conformer_small_176.state_dict'))
 
+        if args.model == 'quartznet':
+            input_scale = 2
+        elif args.model == 'citrinet':
+            input_scale = 8
+        elif args.model == 'conformer':
+            input_scale = 4
+        
         model = lightning_model.ASRLightning(
             model=pre_trained_model,
             criterion=loss.CTCLoss(model_tokenizer.get_vocab_size()),
             decoder=greedy_decoder.GreedyCTCDecoder(tokenizer=model_tokenizer, blank=model_tokenizer.get_vocab_size()),
             t_max=int(len(train_dataset) / (args.batch_size * args.accumulate_grad_batches) + 1) * args.max_epochs,
-            inputs_length_scale=2 if args.model == 'quartznet' else 8,
+            inputs_length_scale=input_scale,
         )
 
         trainer.fit(
