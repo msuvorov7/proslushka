@@ -99,7 +99,7 @@ class ASRLightning(pl.LightningModule):
             optimizer=optimizer,
             max_iter=self.t_max,
             warmup_factor=1.0 / 10.0,
-            warmup_iters=1000,
+            warmup_iters=500,
         )
         
         return (

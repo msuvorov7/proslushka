@@ -52,7 +52,7 @@ if __name__ == '__main__':
     args_parser.add_argument('--train_manifest', required=True, dest='train_manifest')
     args_parser.add_argument('--valid_manifest', required=True, dest='valid_manifest')
     args_parser.add_argument('--checkpoint_path', default=None, dest='checkpoint_path')
-    args_parser.add_argument('--batch_size', default=16, dest='batch_size', type=int)
+    args_parser.add_argument('--batch_size', default=48, dest='batch_size', type=int)
     args_parser.add_argument('--max_epochs', default=5, dest='max_epochs', type=int)
     args_parser.add_argument('--accumulate_grad_batches', default=64, dest='accumulate_grad_batches', type=int)
     args = args_parser.parse_args()
@@ -216,6 +216,7 @@ if __name__ == '__main__':
             decoder=greedy_decoder.GreedyCTCDecoder(tokenizer=model_tokenizer, blank=model_tokenizer.get_vocab_size()),
             t_max=int(len(train_dataset) / (args.batch_size * args.accumulate_grad_batches) + 1) * args.max_epochs,
             inputs_length_scale=input_scale,
+            lr=0.05,
         )
 
         trainer.fit(
@@ -229,7 +230,7 @@ if __name__ == '__main__':
     logging.info('state dict saved in models/')
 
     # save in onnx format
-    dummy_input = torch.randn(1, model.model.in_channels, 256, dtype=torch.float32)
+    dummy_input = torch.randn(1, model.model.in_channels if args.model != 'conformer' else model.model.n_mels, 256, dtype=torch.float32)
     torch.onnx.export(
         model.model.eval().to('cpu'),
         dummy_input,
