@@ -48,4 +48,8 @@ QUARTZNET_TOKENIZER.pre_tokenizer = Split(r"", "isolated")
 
 CITRINET_TOKENIZER = Tokenizer(WordPiece())
 CITRINET_TOKENIZER.pre_tokenizer = Whitespace()
-CITRINET_TRAINER = WordPieceTrainer(vocab_size=256, initial_alphabet=CHARS, special_tokens=["[PAD]"])
+CITRINET_TRAINER = WordPieceTrainer(vocab_size=256, initial_alphabet=CHARS[1:], special_tokens=["[PAD]"])
+
+CONFORMER_TOKENIZER = Tokenizer(WordPiece())
+CONFORMER_TOKENIZER.pre_tokenizer = Whitespace()
+CONFORMER_TRAINER = WordPieceTrainer(vocab_size=1024, initial_alphabet=CHARS[1:], special_tokens=["[PAD]"])

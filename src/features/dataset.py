@@ -28,6 +28,7 @@ class AudioDataset(Dataset):
         sr: int = 16_000,
         n_mels: int = 64,
         n_fft: int = 512,
+        normalize: bool = False,
         dataset_path = '../data/'
     ):
         super().__init__()
@@ -37,6 +38,7 @@ class AudioDataset(Dataset):
         self.sr = sr
         self.n_mels = n_mels
         self.n_fft = n_fft
+        self.normalize = normalize
         self.spec_aug = spec_aug
         self.dataset_path = dataset_path
 
@@ -109,6 +111,9 @@ class AudioDataset(Dataset):
             transcript_tensor = torch.zeros(5, dtype=torch.int64)
 
         log_mel_spec = torch.log(torch.clamp(mel_spectrogram, min=1e-10))
+
+        if self.normalize:
+            log_mel_spec = (log_mel_spec - log_mel_spec.mean(dim=2, keepdim=True)) / (log_mel_spec.std(dim=2, keepdim=True) + 1e-8)
 
         input_length = log_mel_spec.shape[-1]
         label_length = len(transcript_tensor)
