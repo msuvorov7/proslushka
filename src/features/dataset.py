@@ -108,7 +108,10 @@ class AudioDataset(Dataset):
             mel_spectrogram = torch.zeros(1, self.n_mels, 100, dtype=torch.float32)
             transcript_tensor = torch.zeros(5, dtype=torch.int64)
 
+        # mel_spectrogram = (mel_spectrogram - mel_spectrogram.mean(dim=2, keepdim=True)) / (mel_spectrogram.std(dim=2, keepdim=True) + 1e-8)
         log_mel_spec = torch.log(torch.clamp(mel_spectrogram, min=1e-10))
+        log_mel_spec = (log_mel_spec - log_mel_spec.mean(dim=2, keepdim=True)) / (log_mel_spec.std(dim=2, keepdim=True) + 1e-8)
+        
 
         input_length = log_mel_spec.shape[-1]
         label_length = len(transcript_tensor)
