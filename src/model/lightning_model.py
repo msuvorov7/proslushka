@@ -94,6 +94,7 @@ class ASRLightning(pl.LightningModule):
             lr=self.hparams.lr,
             weight_decay=self.hparams.weight_decay,
             betas=[0.8, 0.25],
+            fused=True,
         )
         scheduler = WarmupCosLR(
             optimizer=optimizer,
