@@ -171,7 +171,10 @@ if __name__ == '__main__':
         model = lightning_model.ASRLightning(
             model=pre_trained_model.asr_model['model'],
             criterion=loss.CTCLoss(pre_trained_model.model_tokenizer.get_vocab_size()),
-            decoder=greedy_decoder.GreedyCTCDecoder(tokenizer=pre_trained_model.model_tokenizer, blank=pre_trained_model.model_tokenizer.get_vocab_size()),
+            decoder=greedy_decoder.GreedyCTCDecoder(
+                tokenizer=pre_trained_model.model_tokenizer,
+                blank=pre_trained_model.model_tokenizer.get_vocab_size()
+            ),
             t_max=int(len(train_dataset) / (args.batch_size * args.accumulate_grad_batches) + 1) * args.max_epochs,
             inputs_length_scale=pre_trained_model.asr_model['input_scale'],
             lr=0.05,

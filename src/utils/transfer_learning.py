@@ -5,7 +5,7 @@ import torch
 import argparse
 import nemo.collections.asr as nemo_asr
 
-from src.model.quartznet_torch import QuartzNet
+from model.torch.quartznet import QuartzNet
 from src.features.tokenizer import QUARTZNET_TOKENIZER
 
 

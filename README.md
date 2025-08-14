@@ -61,3 +61,12 @@ python -m src.model.train_model \
     --max_epochs=1 \
     --accumulate_grad_batches=256
 ```
+
+python -m src.model.train_model \
+    --model=citrinet \
+    --dataset_path=../../Downloads/golos_opus/train_opus \
+    --train_manifest=../../Downloads/golos_opus/train_opus/1hour.jsonl \
+    --valid_manifest=../../Downloads/golos_opus/train_opus/1hour.jsonl \
+    --batch_size=16 \
+    --max_epochs=1 \
+    --accumulate_grad_batches=256
