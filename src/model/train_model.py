@@ -103,6 +103,7 @@ if __name__ == '__main__':
         sr=16_000,
         n_mels=64 if args.model == 'quartznet' else 80,
         n_fft=512,
+        normalize=True,
         dataset_path=args.dataset_path,
     )
     valid_dataset = dataset.AudioDataset(
@@ -113,6 +114,7 @@ if __name__ == '__main__':
         sr=16_000,
         n_mels=64 if args.model == 'quartznet' else 80,
         n_fft=512,
+        normalize=True,
         dataset_path=args.dataset_path,
     )
 
