@@ -6,3 +6,4 @@ broken.txt
 .DS_Store
 ckpts/*
 *.zip
+src/tests/*

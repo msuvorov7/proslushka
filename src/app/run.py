@@ -13,8 +13,11 @@ from tokenizers import Tokenizer
 
 import src.app.lib.asr as asr
 
-onnx_model = onnxruntime.InferenceSession("models/model.onnx")
-tokenizer = Tokenizer.from_file("models/tokenizer.json")
+citrinet_model = onnxruntime.InferenceSession("models/citrinet_model.onnx")
+citrinet_tokenizer = Tokenizer.from_file("models/citrinet_tokenizer.json")
+
+comma_model = onnxruntime.InferenceSession("models/comma_model.onnx")
+distilrubert_tokenizer = Tokenizer.from_file("models/distilrubert_tokenizer.json")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -33,7 +36,7 @@ async def read_voice(message: types.Message):
     file_path = f'/tmp/{message.voice.file_id}.ogg'
     await message.voice.download(destination_file=file_path)
 
-    asr_model = asr.ASRModel(onnx_model, tokenizer)
+    asr_model = asr.ASRModel(citrinet_model, citrinet_tokenizer, comma_model, distilrubert_tokenizer)
     decoded_speech = asr_model.speech_to_text(*sf.read(file_path))
 
     if len(decoded_speech) < 1_000:
@@ -59,7 +62,7 @@ async def read_audio(message: types.Message):
         logging.info('audio converted')
         file_path = opus_file_path
 
-    asr_model = asr.ASRModel(onnx_model, tokenizer)
+    asr_model = asr.ASRModel(citrinet_model, citrinet_tokenizer, comma_model, distilrubert_tokenizer)
     decoded_speech = asr_model.speech_to_text(*sf.read(file_path))
 
     if len(decoded_speech) < 1_000:
