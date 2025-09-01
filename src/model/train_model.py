@@ -7,15 +7,11 @@ import pandas as pd
 
 import torch
 import pytorch_lightning as pl
-from tokenizers import Tokenizer
 
 import src.decoder.greedy_decoder as greedy_decoder
 import src.features.dataset as dataset
-import src.features.tokenizer as tokenizer
 import src.model.loss as loss
-import src.model.quartznet_torch as quartznet
-import src.model.citrinet_torch as citrinet
-import src.model.conformer_torch as conformer
+import src.model.config as config
 import src.model.lightning_model as lightning_model
 
 torch.set_num_threads(8)
@@ -76,43 +72,39 @@ if __name__ == '__main__':
     valid_manifest = prepare_manifest(valid_manifest, 0.5, 41)
     logging.info(f'manifests prepared: {train_manifest.duration.sum() / 3600}')
 
-    os.environ['TOKENIZERS_PARALLELISM'] = 'true'
     if args.model == 'quartznet':
-        model_tokenizer = tokenizer.QUARTZNET_TOKENIZER
+        pre_trained_sd = 'models/quartznet15x5_sber_transfer.state_dict'
     elif args.model == 'citrinet':
-        model_tokenizer = tokenizer.CITRINET_TOKENIZER
-        tokenizer.CITRINET_TOKENIZER.train_from_iterator(
-            train_manifest['text'].drop_duplicates().values,
-            tokenizer.CITRINET_TRAINER,
-        )
+        pre_trained_sd = 'models/citrinet384_10epoch.state_dict'
     elif args.model == 'conformer':
-        model_tokenizer = tokenizer.CONFORMER_TOKENIZER
-        tokenizer.CONFORMER_TOKENIZER.train_from_iterator(
-            train_manifest['text'].drop_duplicates().values,
-            tokenizer.CONFORMER_TRAINER,
-        )
-    model_tokenizer.save(f"models/{args.model}_tokenizer.json")
-    os.environ['TOKENIZERS_PARALLELISM'] = 'false'
-    # model_tokenizer = Tokenizer.from_file(f"models/{args.model}_tokenizer.json")
+        pre_trained_sd = 'models/conformer_small_176.state_dict'
+
+    pre_trained_model = config.ASRModel(
+        model_name=args.model,
+        corpus=train_manifest['text'].drop_duplicates().values,
+        # pre_trained_tokenizer=f"models/{args.model}_tokenizer.json",
+        # pre_trained_sd=pre_trained_sd,
+    )
+    pre_trained_model.model_tokenizer.save(f"models/{args.model}_tokenizer.json")
 
     train_dataset = dataset.AudioDataset(
-        tokenizer=model_tokenizer,
+        tokenizer=pre_trained_model.model_tokenizer,
         mode='train',
         audio_files=train_manifest,
         spec_aug=dataset.SPEC_AUG,
         sr=16_000,
-        n_mels=64 if args.model == 'quartznet' else 80,
+        n_mels=pre_trained_model.asr_model['n_mels'],
         n_fft=512,
         normalize=True,
         dataset_path=args.dataset_path,
     )
     valid_dataset = dataset.AudioDataset(
-        tokenizer=model_tokenizer,
+        tokenizer=pre_trained_model.model_tokenizer,
         mode='valid',
         audio_files=valid_manifest,
         spec_aug=None,
         sr=16_000,
-        n_mels=64 if args.model == 'quartznet' else 80,
+        n_mels=pre_trained_model.asr_model['n_mels'],
         n_fft=512,
         normalize=True,
         dataset_path=args.dataset_path,
@@ -176,48 +168,15 @@ if __name__ == '__main__':
         )
 
     else:
-        if args.model == 'quartznet':
-            pre_trained_model = quartznet.QuartzNet(
-                R_repeat=2,
-                in_channels=64,
-                out_channels=model_tokenizer.get_vocab_size() + 1,  # plus one for blank token (ctc loss)
-            )
-            # pre_trained_model.load_state_dict(torch.load('models/quartznet15x5_sber_transfer.state_dict'))
-        elif args.model == 'citrinet':
-            pre_trained_model = citrinet.CitriNet(
-                K=4,
-                C=384,
-                R_repeat=4,
-                Gamma=8,
-                in_channels=80,
-                out_channels=model_tokenizer.get_vocab_size() + 1,  # plus one for blank token (ctc loss)
-            )
-            # pre_trained_model.load_state_dict(torch.load('models/citrinet384_10epoch.state_dict'))
-        elif args.model == 'conformer':
-            pre_trained_model = conformer.Conformer(
-                in_dim=1,
-                n_mels=80,
-                encoder_dim=176,
-                num_blocks=16,
-                num_heads=4,
-                dropout=0.1,
-                out_dim=model_tokenizer.get_vocab_size() + 1,  # plus one for blank token (ctc loss)
-            )
-            pre_trained_model.load_state_dict(torch.load('models/conformer_small_176.state_dict'))
-
-        if args.model == 'quartznet':
-            input_scale = 2
-        elif args.model == 'citrinet':
-            input_scale = 8
-        elif args.model == 'conformer':
-            input_scale = 4
-        
         model = lightning_model.ASRLightning(
-            model=pre_trained_model,
-            criterion=loss.CTCLoss(model_tokenizer.get_vocab_size()),
-            decoder=greedy_decoder.GreedyCTCDecoder(tokenizer=model_tokenizer, blank=model_tokenizer.get_vocab_size()),
+            model=pre_trained_model.asr_model['model'],
+            criterion=loss.CTCLoss(pre_trained_model.model_tokenizer.get_vocab_size()),
+            decoder=greedy_decoder.GreedyCTCDecoder(
+                tokenizer=pre_trained_model.model_tokenizer,
+                blank=pre_trained_model.model_tokenizer.get_vocab_size()
+            ),
             t_max=int(len(train_dataset) / (args.batch_size * args.accumulate_grad_batches) + 1) * args.max_epochs,
-            inputs_length_scale=input_scale,
+            inputs_length_scale=pre_trained_model.asr_model['input_scale'],
             lr=0.05,
         )
 
@@ -232,7 +191,7 @@ if __name__ == '__main__':
     logging.info('state dict saved in models/')
 
     # save in onnx format
-    dummy_input = torch.randn(1, model.model.in_channels if args.model != 'conformer' else model.model.n_mels, 256, dtype=torch.float32)
+    dummy_input = torch.randn(1, pre_trained_model.asr_model['n_mels'], 256, dtype=torch.float32)
     torch.onnx.export(
         model.model.eval().to('cpu'),
         dummy_input,

@@ -19,9 +19,9 @@ def create_archive(models_path: str) -> None:
     """
     with zipfile.ZipFile('serverless_functions.zip', mode='w', compression=zipfile.ZIP_DEFLATED) as zf:
         zf.write('src/app/run.py', 'run.py')
-        zf.write('src/app/lib/asr.py', 'lib/asr.py')
-        zf.write('src/app/lib/librosa.py', 'lib/librosa.py')
-        zf.write('src/app/lib/vad.py', 'lib/vad.py')
+        zf.write('src/app/lib/asr.py', 'src/app/lib/asr.py')
+        zf.write('src/app/lib/librosa.py', 'src/app/lib/librosa.py')
+        zf.write('src/app/lib/webrtcvad.py', 'src/app/lib/webrtcvad.py')
         zf.write('src/app/requirements.txt', 'requirements.txt')
         zf.write(models_path + 'citrinet_384_10epoch.onnx', 'models/model.onnx')
         zf.write(models_path + 'tokenizer.json', 'models/tokenizer.json')

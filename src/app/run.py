@@ -4,13 +4,14 @@ import logging
 import subprocess
 import sys
 import onnxruntime
+import soundfile as sf
 
 from aiogram import Bot, types
 from aiogram import Dispatcher
 
 from tokenizers import Tokenizer
 
-import lib.asr as asr
+import src.app.lib.asr as asr
 
 onnx_model = onnxruntime.InferenceSession("models/model.onnx")
 tokenizer = Tokenizer.from_file("models/tokenizer.json")
@@ -32,7 +33,8 @@ async def read_voice(message: types.Message):
     file_path = f'/tmp/{message.voice.file_id}.ogg'
     await message.voice.download(destination_file=file_path)
 
-    decoded_speech = asr.speech_to_text(file_path, onnx_model, tokenizer)
+    asr_model = asr.ASRModel(onnx_model, tokenizer)
+    decoded_speech = asr_model.speech_to_text(*sf.read(file_path))
 
     if len(decoded_speech) < 1_000:
         await message.reply(
@@ -57,7 +59,8 @@ async def read_audio(message: types.Message):
         logging.info('audio converted')
         file_path = opus_file_path
 
-    decoded_speech = asr.speech_to_text(file_path, onnx_model, tokenizer)
+    asr_model = asr.ASRModel(onnx_model, tokenizer)
+    decoded_speech = asr_model.speech_to_text(*sf.read(file_path))
 
     if len(decoded_speech) < 1_000:
         await message.reply(
