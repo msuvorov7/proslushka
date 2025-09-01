@@ -21,7 +21,7 @@ def create_archive(models_path: str) -> None:
         zf.write('src/app/run.py', 'run.py')
         zf.write('src/app/lib/asr.py', 'src/app/lib/asr.py')
         zf.write('src/app/lib/librosa.py', 'src/app/lib/librosa.py')
-        zf.write('src/app/lib/vad.py', 'src/app/lib/vad.py')
+        zf.write('src/app/lib/webrtcvad.py', 'src/app/lib/webrtcvad.py')
         zf.write('src/app/requirements.txt', 'requirements.txt')
         zf.write(models_path + 'citrinet_384_10epoch.onnx', 'models/model.onnx')
         zf.write(models_path + 'tokenizer.json', 'models/tokenizer.json')
