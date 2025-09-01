@@ -10,7 +10,7 @@ from aiogram import Dispatcher
 
 from tokenizers import Tokenizer
 
-import lib.asr as asr
+import src.app.lib.asr as asr
 
 onnx_model = onnxruntime.InferenceSession("models/model.onnx")
 tokenizer = Tokenizer.from_file("models/tokenizer.json")

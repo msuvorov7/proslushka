@@ -3,8 +3,11 @@ import soundfile as sf
 
 from itertools import groupby
 
-import lib.librosa as librosa
-import lib.vad as vad
+
+import src.app.lib.librosa as librosa
+import src.app.lib.vad as vad
+
+import src.app.lib.webrtcvad as wervad
 
 
 def log_softmax(x, axis=None):
