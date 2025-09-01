@@ -14,10 +14,10 @@ class VoiceActivityDetector:
         self,
         audio: np.ndarray,
         sample_rate: int,
-        sample_window: float = 0.02, #20 ms
-        sample_overlap: float = 0.01, #10ms
-        speech_window: float = 0.5, #half a second
-        speech_energy_threshold: float = 0.6, #60% of energy in voice band
+        sample_window: float = 0.02, # 20 ms
+        sample_overlap: float = 0.01, # 10ms
+        speech_window: float = 0.5, # half a second
+        speech_energy_threshold: float = 0.6, # 60% of energy in voice band
         speech_start_band: int = 300,
         speech_end_band: int = 3000,
     ):  
@@ -117,7 +117,7 @@ class VoiceActivityDetector:
                 speech_time_start = window[0] / self.rate
                 speech_label['speech_begin'] = speech_time_start
                 speech_label['speech_begin_ids'] = int(window[0])
-                print(int(window[0]), speech_time_start)
+                # print(int(window[0]), speech_time_start)
                 #speech_time.append(speech_label)
             if (window[1]==0.0 and is_speech==1):
                 is_speech = 0
@@ -125,7 +125,7 @@ class VoiceActivityDetector:
                 speech_label['speech_end'] = speech_time_end
                 speech_label['speech_end_ids'] = int(window[0])
                 speech_time.append(speech_label)
-                print(int(window[0]), speech_time_end)
+                # print(int(window[0]), speech_time_end)
         return speech_time
        
     def detect_speech(self):
