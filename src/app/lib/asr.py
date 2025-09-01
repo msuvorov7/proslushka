@@ -37,12 +37,17 @@ def pad_sequence(batch: list):
 class ASRModel:
     def __init__(
             self,
-            encoder,
-            encoder_tokenizer,
+            asr_encoder,
+            asr_tokenizer,
+            punct_model,
+            punct_tokenizer,
             target_sr: int = 16_000,
     ):
-        self.encoder = encoder
-        self.encoder_tokenizer = encoder_tokenizer
+        self.asr_encoder = asr_encoder
+        self.asr_tokenizer = asr_tokenizer
+        self.punct_model = punct_model
+        self.punct_tokenizer = punct_tokenizer
+        self.punct_tokenizer.enable_padding()
         self.target_sr = target_sr
 
     def preprocess(self, wav: np.ndarray, sr: int) -> np.ndarray:
@@ -92,14 +97,14 @@ class ASRModel:
 
         return timestamps
     
-    def loader(self, audio, timestamps, batch_size: int):
+    def asr_batch_loader(self, audio, timestamps, batch_size: int):
         for i in range(0, len(timestamps), batch_size):
             batch = pad_sequence(
                 [audio[ts['begin_ids']: ts['end_ids']] for ts in timestamps[i: i + batch_size]]
             )
             yield batch
 
-    def encoder_forward(self, batch: np.ndarray):
+    def asr_encoder_forward(self, batch: np.ndarray):
         mel_spec = librosa.melspectrogram(
             y=batch,
             sr=self.target_sr,
@@ -117,9 +122,9 @@ class ASRModel:
 
         log_mel_spec = np.log(np.clip(mel_spec, a_min=1e-10, a_max=np.inf)).astype(np.float32)
         model_input = {
-            self.encoder.get_inputs()[0].name: log_mel_spec
+            self.asr_encoder.get_inputs()[0].name: log_mel_spec
         }
-        model_output = self.encoder.run(None, model_input)[0]
+        model_output = self.asr_encoder.run(None, model_input)[0]
         output = model_output.transpose(2, 0, 1)
         output = log_softmax(output, axis=2)
         output = output.transpose(1, 0, 2)
@@ -128,74 +133,55 @@ class ASRModel:
 
         # drop duplicated tokens
         tokens = [[key for key, _ in groupby(row)] for row in tokens]
-
-        return [_.replace(' ##', '') for _ in self.encoder_tokenizer.decode_batch(tokens)]
+        return [_.replace(' ##', '') for _ in self.asr_tokenizer.decode_batch(tokens, skip_special_tokens=True)]
     
-    def decoder_forward(self, batch: list):
-        """
-        rut5-spell-correct prototype from UrukHan/t5-russian-spell
-        """
-        # print(batch)
-        inputs = self.decoder_tokenizer.encode_batch([f'Spell correct: {text}' for text in batch])
+    def punct_loader(self, text: str, max_length: int, batch_size: int):
+        words = text.split()
+        data = []
+        for i in range(0, len(words), max_length):
+            data.append(' '.join(words[i: i + max_length]))
+        for i in range(0, len(data), batch_size):
+            yield data[i: i + batch_size]
+    
+    def punct_forward(self, text: str) -> str:
+        batch_size = 8
+        max_words = 80
+        IND_TO_TARGET_TOKEN = {1: 20, 2: 24, 3: 45, 4: 107, 5: 39, 6: 67}
 
-        input_ids = pad_sequence([_.ids for _ in inputs]).astype(np.int64)  # (1, seq_len)
-        attention_mask = pad_sequence([_.attention_mask for _ in inputs]).astype(np.int64)  # (1, seq_len)
+        result = []
+        a = []
+        for batch in self.punct_loader(text, max_words, batch_size):
+            inputs = self.punct_tokenizer.encode_batch(
+                batch,
+                add_special_tokens=True,
+            )
+            input_ids = np.asarray([_.ids for _ in inputs]).astype(np.int64).reshape(len(batch), -1)
+            attention_mask = np.asarray([_.attention_mask for _ in inputs]).astype(np.int64).reshape(len(batch), -1)
 
-        # print(pad_sequence(input_ids))
-
-        # Запуск энкодера
-        encoder_outputs = self.decoder[0].run(
-            None,
-            {
-                "input_ids": input_ids,
-                "attention_mask": attention_mask,
+            model_input = {
+                self.punct_model.get_inputs()[0].name: input_ids,
+                self.punct_model.get_inputs()[1].name: attention_mask,
             }
-        )
+            model_output = self.punct_model.run(None, model_input)[0].argmax(axis=-1).reshape(len(batch), -1)
 
-        # Получение encoder_hidden_states
-        encoder_hidden_states = encoder_outputs[0]
-        encoder_attention_mask = attention_mask  # можно использовать ту же маску
+            decoded_batch = []
+            for i in range(len(batch)):
+                sentence_tokens = []
+                for tok, trg in zip(input_ids[i], model_output[i]):
+                    sentence_tokens.append(tok)
+                    if trg != 0:
+                        sentence_tokens.append(IND_TO_TARGET_TOKEN[trg])
+                decoded_batch.append(sentence_tokens)
 
-        # Инициализация декодера
-        decoder_input_ids = np.zeros((len(encoder_hidden_states), 1), dtype=np.int64)  # начать с pad
-        # или начать с <s> (начала предложения)
+            result += self.punct_tokenizer.decode_batch(decoded_batch, skip_special_tokens=True)
 
-        # Генерация
-        max_length = 256
-        batch_size = len(encoder_hidden_states)
-        output_ids = [[] for _ in range(batch_size)]
-        finished = [False] * batch_size
-
-        for _ in range(max_length):
-            decoder_outputs = self.decoder[1].run(
-                None,
-                {
-                    "input_ids": decoder_input_ids,
-                    "encoder_attention_mask": encoder_attention_mask,
-                    "encoder_hidden_states": encoder_hidden_states,
-                }
+        # postprocessing
+        for s in ' '.join(result).split('.'):
+            a.append(
+                (s.replace(' _ ', '-').strip().strip(',-') + '.').capitalize()
             )
 
-            # decoder_outputs[0] — это logits для следующего токена
-            next_token_logits = decoder_outputs[0][:, -1, :]
-            next_token_id = np.argmax(next_token_logits, axis=-1).reshape(-1, 1)
-            decoder_input_ids = np.concatenate([decoder_input_ids, next_token_id], axis=-1)
-            
-            # Проверяем, достигнут ли eos_token_id
-            for i in range(batch_size):
-                if not finished[i]:
-                    token_id = next_token_id[i, 0]
-                    output_ids[i].append(token_id)
-                    if token_id == self.decoder_tokenizer.token_to_id('</s>'):
-                        finished[i] = True
-
-            # Если все последовательности завершены — выходим
-            if all(finished):
-                break
-
-        # Декодирование
-        corrected_text = self.decoder_tokenizer.decode_batch(output_ids, skip_special_tokens=True)
-        return ' '.join(corrected_text)
+        return ' '.join(a)
 
     def speech_to_text(self, audio: np.ndarray, sample_rate: int) -> str:
         batch_size = 8
@@ -203,8 +189,8 @@ class ASRModel:
         audio = self.preprocess(audio, sample_rate)
         timestamps = self.split_audio(audio, 30, 5)
 
-        for batch in self.loader(audio, timestamps, batch_size):
-            encoder_output = self.encoder_forward(batch)
+        for batch in self.asr_batch_loader(audio, timestamps, batch_size):
+            encoder_output = self.asr_encoder_forward(batch)
             acoustic_output += encoder_output
 
-        return ' '.join(acoustic_output)
+        return self.punct_forward(' '.join(acoustic_output))
