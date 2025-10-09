@@ -16,7 +16,10 @@ import src.app.lib.asr as asr
 citrinet_model = onnxruntime.InferenceSession("models/citrinet_model.onnx")
 citrinet_tokenizer = Tokenizer.from_file("models/citrinet_tokenizer.json")
 
-comma_model = onnxruntime.InferenceSession("models/comma_model.onnx")
+try:
+    comma_model = onnxruntime.InferenceSession("models/comma_model.onnx")
+except:
+    comma_model = None
 distilrubert_tokenizer = Tokenizer.from_file("models/distilrubert_tokenizer.json")
 
 logging.basicConfig(
@@ -33,46 +36,92 @@ async def welcome_start(message):
 
 
 async def read_voice(message: types.Message):
-    file_path = f'/tmp/{message.voice.file_id}.ogg'
-    await message.voice.download(destination_file=file_path)
+    try:
+        if message.voice.duration > 1800:
+            await message.reply(
+                'voice duration limit: 30 minutes'
+            )
+            return
+        
+        file_path = f'/tmp/{message.voice.file_id}'
+        ogg_file_path = f'/tmp/{message.voice.file_id}a.ogg'
+        voice_extention = None
+        
+        await message.voice.download(destination_file=file_path)
+        
+        for ext in ('ogg', 'm4a'):
+            ext_file_path = f'/tmp/{message.voice.file_id}.{ext}'
+            os.rename(file_path, ext_file_path)
+            file_path = ext_file_path
 
-    asr_model = asr.ASRModel(citrinet_model, citrinet_tokenizer, comma_model, distilrubert_tokenizer)
-    decoded_speech = asr_model.speech_to_text(*sf.read(file_path))
+            try:
+                ffmpeg_result = subprocess.run(
+                    ['ffmpeg', '-i', file_path, '-c:a', 'libvorbis', '-q:a', '6', '-v', '16', ogg_file_path],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True
+                )
+                logging.info(f"stdout: {ffmpeg_result.stdout}\nstderr: {ffmpeg_result.stderr}")
+                audio, sample_rate = sf.read(ogg_file_path)
+                voice_extention = ext
+                break
+            except:
+                pass
 
-    if len(decoded_speech) < 1_000:
-        await message.reply(
-            f'message duration: {message.voice.duration},\n{decoded_speech}'
-        )
-    else:
-        with open(f'/tmp/{message.voice.file_id}.txt', mode='w', encoding='utf-8') as file:
-            file.write(decoded_speech)
-        await message.answer_document(document=types.InputFile(f'/tmp/{message.voice.file_id}.txt'))
+        if voice_extention is None:
+            await message.reply(
+                'voice format not in supported: .ogg, .m4a'
+            )
+            return
+    
+        asr_model = asr.ASRModel(citrinet_model, citrinet_tokenizer, comma_model, distilrubert_tokenizer)
+        decoded_speech = asr_model.speech_to_text(audio, sample_rate)
+
+        if len(decoded_speech) < 1_000:
+            await message.reply(
+                f'message duration: {message.voice.duration},\n{decoded_speech}'
+            )
+        else:
+            with open(f'/tmp/{message.voice.file_id}.txt', mode='w', encoding='utf-8') as file:
+                file.write(decoded_speech)
+            await message.answer_document(document=types.InputFile(f'/tmp/{message.voice.file_id}.txt'))
+    except Exception as e:
+        await message.reply(str(e))
 
 
 async def read_audio(message: types.Message):
-    _, file_extension = os.path.splitext(message.audio.file_name)
-    file_path = f'/tmp/{message.audio.file_name}'
-    
-    await message.audio.download(destination_file=file_path)
+    try:
+        if message.audio.duration > 1800:
+            await message.reply(
+                'audio duration limit: 30 minutes'
+            )
+            return
+        
+        _, file_extension = os.path.splitext(message.audio.file_name)
+        file_path = f'/tmp/{message.audio.file_name}'
+        
+        await message.audio.download(destination_file=file_path)
 
-    if file_extension not in ('.opus', '.ogg', '.mp3'):
-        opus_file_path = f'/tmp/{message.audio.file_id}.opus'
-        # https://yandex.cloud/ru/docs/functions/tutorials/video-converting-queue
-        subprocess.run(['ffmpeg', '-i', file_path, '-c:a', 'libopus', '-b:a', '36k', '-ac', '1', '-v', '16', opus_file_path])
-        logging.info('audio converted')
-        file_path = opus_file_path
+        if file_extension not in ('.ogg', '.mp3'):
+            ogg_file_path = f'/tmp/{message.audio.file_id}.ogg'
+            # https://yandex.cloud/ru/docs/functions/tutorials/video-converting-queue
+            subprocess.run(['ffmpeg', '-i', file_path, '-c:a', 'libvorbis', '-q:a', '6', '-v', '16', ogg_file_path])
+            logging.info('audio converted')
+            file_path = ogg_file_path
 
-    asr_model = asr.ASRModel(citrinet_model, citrinet_tokenizer, comma_model, distilrubert_tokenizer)
-    decoded_speech = asr_model.speech_to_text(*sf.read(file_path))
+        asr_model = asr.ASRModel(citrinet_model, citrinet_tokenizer, comma_model, distilrubert_tokenizer)
+        decoded_speech = asr_model.speech_to_text(*sf.read(file_path))
 
-    if len(decoded_speech) < 1_000:
-        await message.reply(
-            f'message duration: {message.audio.duration},\n{decoded_speech}'
-        )
-    else:
-        with open(f'/tmp/{message.audio.file_id}.txt', mode='w', encoding='utf-8') as file:
-            file.write(decoded_speech)
-        await message.answer_document(document=types.InputFile(f'/tmp/{message.audio.file_id}.txt'))
+        if len(decoded_speech) < 1_000:
+            await message.reply(
+                f'message duration: {message.audio.duration},\n{decoded_speech}'
+            )
+        else:
+            with open(f'/tmp/{message.audio.file_id}.txt', mode='w', encoding='utf-8') as file:
+                file.write(decoded_speech)
+            await message.answer_document(document=types.InputFile(f'/tmp/{message.audio.file_id}.txt'))
+    except Exception as e:
+        message.reply(str(e))
 
 
 # Functions for Yandex.Cloud
