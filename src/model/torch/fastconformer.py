@@ -291,7 +291,7 @@ class RelPositionMultiHeadAttentionLongformer(RelPositionMultiHeadAttention):
     def forward(self, query, key, value, pos_emb, cache=None):
         q, k, v = self.forward_qkv(query, key, value)
         n_batch, _, T, _ = q.size()
-        pad_mask = torch.zeros(n_batch, T, dtype=torch.bool)
+        pad_mask = torch.zeros(n_batch, T, dtype=torch.bool, device=query.device)
 
         w = max(self.att_context_size[0], self.att_context_size[1])
         pad_len = (2 * w - T % (2 * w)) % (2 * w)  # pad time to 2w
