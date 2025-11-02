@@ -4,6 +4,7 @@ ASR модель для работы с голосовыми сообщения�
 - [QuartzNet15x5](https://arxiv.org/pdf/1910.10261)
 - [CitriNet](https://arxiv.org/pdf/2104.01721)
 - [Conformer](https://arxiv.org/pdf/2005.08100)
+- [FastConformer](https://arxiv.org/pdf/2305.05084)
 
 ## Data
 Для обучения модели необходимо подготовить датафрейм вида:
