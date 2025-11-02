@@ -565,10 +565,14 @@ class MultiHeadAttentionModule(nn.Module):
         self.dropout = dropout
 
         self.norm_attn = nn.LayerNorm(encoder_dim)
-        self.attn = RelPositionMultiHeadAttentionLongformer(
+        # self.attn = RelPositionMultiHeadAttentionLongformer(
+        #     n_head=num_heads,
+        #     n_feat=encoder_dim,
+        #     att_context_size=[128, 128],
+        # )
+        self.attn = RelPositionMultiHeadAttention(
             n_head=num_heads,
             n_feat=encoder_dim,
-            att_context_size=[128, 128],
         )
         self.dropout = nn.Dropout(dropout, inplace=True)
 
@@ -647,11 +651,12 @@ class ConformerEncoder(nn.Module):
             dropout,
         )
 
-        self.pos_encoder = LocalAttRelPositionalEncoding(
-            att_context_size=[128, 128],
-            d_model=encoder_dim,
-            xscale=math.sqrt(encoder_dim),
-        )
+        # self.pos_encoder = LocalAttRelPositionalEncoding(
+        #     att_context_size=[128, 128],
+        #     d_model=encoder_dim,
+        #     xscale=math.sqrt(encoder_dim),
+        # )
+        self.pos_encoder = PositionalEncoder(encoder_dim, xscale=math.sqrt(encoder_dim))
         device = next(self.parameters()).device
         dtype = next(self.parameters()).dtype
         self.pos_encoder.extend_pe(device, dtype)
