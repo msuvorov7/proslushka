@@ -7,6 +7,7 @@ import src.features.tokenizer as tokenizer
 import src.model.torch.quartznet as quartznet
 import src.model.torch.citrinet as citrinet
 import src.model.torch.conformer as conformer
+import src.model.torch.fastconformer as fastconformer
 
 
 class ASRModel:
@@ -22,6 +23,7 @@ class ASRModel:
             'quartznet': tokenizer.QUARTZNET_TOKENIZER,
             'citrinet': tokenizer.CITRINET_TOKENIZER,
             'conformer': tokenizer.CONFORMER_TOKENIZER,
+            'fastconformer': tokenizer.FASTCONFORMER_TOKENIZER,
         }
 
         self.model_name = model_name
@@ -68,6 +70,19 @@ class ASRModel:
                 ),
                 'n_mels': 80,
             },
+            'fastconformer': {
+                'input_scale': 8,
+                'model': fastconformer.FastConformer(
+                    in_dim=1,
+                    n_mels=80,
+                    encoder_dim=256,
+                    num_blocks=16,
+                    num_heads=4,
+                    dropout=0.1,
+                    out_dim=self.model_tokenizer.get_vocab_size() + 1,  # plus one for blank token (ctc loss)
+                ),
+                'n_mels': 80,
+            }
         }
 
         self.asr_model = asr_config[model_name]
@@ -88,5 +103,10 @@ class ASRModel:
             self.model_tokenizer.train_from_iterator(
                 corpus,
                 tokenizer.CONFORMER_TRAINER,
+            )
+        elif self.model_name == 'fastconformer':
+            self.model_tokenizer.train_from_iterator(
+                corpus,
+                tokenizer.FASTCONFORMER_TRAINER,
             )
         os.environ['TOKENIZERS_PARALLELISM'] = 'false'

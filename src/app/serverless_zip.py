@@ -17,7 +17,7 @@ def create_archive(models_path: str) -> None:
     :param models_path: путь до моделей
     :return:
     """
-    with zipfile.ZipFile('serverless_functions.zip', mode='w', compression=zipfile.ZIP_DEFLATED) as zf:
+    with zipfile.ZipFile('serverless_functions.zip', mode='w', compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
         zf.write('src/app/run.py', 'run.py')
         zf.write('src/app/lib/asr.py', 'src/app/lib/asr.py')
         zf.write('src/app/lib/librosa.py', 'src/app/lib/librosa.py')
@@ -27,10 +27,10 @@ def create_archive(models_path: str) -> None:
         zf.write(models_path + 'citrinet_384_10epoch.onnx', 'models/citrinet_model.onnx')
         zf.write(models_path + 'tokenizer.json', 'models/citrinet_tokenizer.json')
         # punctuation
-        zf.write(models_path + 'comma_model.onnx', 'models/comma_model.onnx')
+        zf.write(models_path + 'comma_model_fp16.onnx', 'models/comma_model.onnx')
         zf.write(models_path + 'distilrubert_tokenizer.json', 'models/distilrubert_tokenizer.json')
         # ffmpeg
-        # zf.write('artifacts/ffmpeg-6.0.1-amd64-static/ffmpeg', 'ffmpeg')
+        zf.write('artifacts/ffmpeg-6.0.1-amd64-static/ffmpeg', 'ffmpeg')
 
 
 if __name__ == '__main__':

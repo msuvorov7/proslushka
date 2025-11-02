@@ -53,7 +53,7 @@ if __name__ == '__main__':
     args_parser.add_argument('--accumulate_grad_batches', default=64, dest='accumulate_grad_batches', type=int)
     args = args_parser.parse_args()
 
-    assert args.model in ('quartznet', 'citrinet', 'conformer')
+    assert args.model in ('quartznet', 'citrinet', 'conformer', 'fastconformer')
 
     if args.train_manifest.endswith('.jsonl'):
         # example for train_opus/manifest.jsonl from Golos Dataset
@@ -78,6 +78,8 @@ if __name__ == '__main__':
         pre_trained_sd = 'models/citrinet384_10epoch.state_dict'
     elif args.model == 'conformer':
         pre_trained_sd = 'models/conformer_small_176.state_dict'
+    elif args.model == 'fastconformer':
+        pre_trained_sd = 'models/fastconformer_medium.state_dict'
 
     pre_trained_model = config.ASRModel(
         model_name=args.model,
@@ -177,7 +179,7 @@ if __name__ == '__main__':
             ),
             t_max=int(len(train_dataset) / (args.batch_size * args.accumulate_grad_batches) + 1) * args.max_epochs,
             inputs_length_scale=pre_trained_model.asr_model['input_scale'],
-            lr=0.05,
+            lr=0.003,
         )
 
         trainer.fit(

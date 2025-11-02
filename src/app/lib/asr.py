@@ -192,5 +192,8 @@ class ASRModel:
         for batch in self.asr_batch_loader(audio, timestamps, batch_size):
             encoder_output = self.asr_encoder_forward(batch)
             acoustic_output += encoder_output
-
-        return self.punct_forward(' '.join(acoustic_output))
+        
+        if self.punct_model is not None:
+            return self.punct_forward(' '.join(acoustic_output))
+        else:
+            return ' '.join(acoustic_output)
