@@ -32,8 +32,10 @@ class ASRModel:
             self.model_tokenizer = Tokenizer.from_file(pre_trained_tokenizer)
         else:
             self.model_tokenizer = tokenizer_config[model_name]
-        self.train_tokenizer(corpus)
+            self.train_tokenizer(corpus)
         
+        vocab_size = self.model_tokenizer.get_vocab_size()
+
         asr_config = {
             'quartznet': {
                 'input_scale': 2,
@@ -41,7 +43,7 @@ class ASRModel:
                     R_repeat=2,
                     in_channels=64,
                     include_se_block=False,
-                    out_channels=self.model_tokenizer.get_vocab_size() + 1,  # plus one for blank token (ctc loss)
+                    out_channels=vocab_size,
                 ),
                 'n_mels': 64,
             },
@@ -53,7 +55,7 @@ class ASRModel:
                     R_repeat=4,
                     Gamma=8,
                     in_channels=80,
-                    out_channels=self.model_tokenizer.get_vocab_size() + 1,  # plus one for blank token (ctc loss)
+                    out_channels=vocab_size,
                 ),
                 'n_mels': 80,
             },
@@ -66,7 +68,7 @@ class ASRModel:
                     num_blocks=16,
                     num_heads=4,
                     dropout=0.1,
-                    out_dim=self.model_tokenizer.get_vocab_size() + 1,  # plus one for blank token (ctc loss)
+                    out_dim=vocab_size,
                 ),
                 'n_mels': 80,
             },
@@ -79,7 +81,7 @@ class ASRModel:
                     num_blocks=16,
                     num_heads=4,
                     dropout=0.1,
-                    out_dim=self.model_tokenizer.get_vocab_size() + 1,  # plus one for blank token (ctc loss)
+                    out_dim=vocab_size,
                 ),
                 'n_mels': 80,
             }
@@ -92,6 +94,7 @@ class ASRModel:
 
     def train_tokenizer(self, corpus: list[str]):
         os.environ['TOKENIZERS_PARALLELISM'] = 'true'
+        # QuartzNet обучать не нужно, он посимвольный и словарь задан жестко
         if self.model_name == 'quartznet':
             pass
         elif self.model_name == 'citrinet':
