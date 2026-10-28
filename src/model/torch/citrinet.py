@@ -10,15 +10,33 @@ KERNEL_SIZES = {
     'K4': [5, 11, 13, 15, 17, 19, 21, 13, 15, 17, 19, 21, 23, 25, 25, 27, 29, 31, 33, 35, 37, 39, 41]
 }
 
+def apply_mask(x, lengths):
+    """Обнуляет всё, что выходит за пределы реальной длины аудио"""
+    max_len = x.size(2)
+    mask = torch.arange(max_len, device=x.device).expand(x.size(0), -1) < lengths.unsqueeze(1)
+    return x * mask.unsqueeze(1).float()
+
+
+class MaskedSequential(nn.Sequential):
+    """
+    Ведет себя как nn.Sequential, 
+    но умеет передавать lengths между Jasper-блоками.
+    """
+    def forward(self, x, lengths):
+        for module in self:
+            x, lengths = module(x, lengths)
+        return x, lengths
+
 
 class CitriNet(nn.Module):
     def __init__(
         self, K: int,
         C: int,
-        R_repeat,
+        R_repeat: int,
         Gamma: int,
         in_channels: int,
         out_channels: int,
+        dropout: float = 0.1,
     ):
         """
         CitriNet model from https://arxiv.org/pdf/2104.01721
@@ -30,13 +48,13 @@ class CitriNet(nn.Module):
         :param out_channels: output dim (vocab size with blank token)
         """
         super().__init__()
-        
+
         self.K = KERNEL_SIZES[f'K{K}']
         self.C = C
         self.R_repeat = R_repeat
         self.in_channels = in_channels
         self.out_channels = out_channels
-
+        
         self.C1 = nn.Sequential(
             nn.Conv1d(
                 in_channels,
@@ -51,10 +69,10 @@ class CitriNet(nn.Module):
             nn.BatchNorm1d(self.C, eps=0.001, momentum=0.1, affine=True),
             SqueezeExcite(self.C, Gamma),
             nn.ReLU(inplace=True),
-            nn.Dropout(p=0.0),
+            nn.Dropout1d(p=dropout),
         )
 
-        self.megablock1 = nn.Sequential(*[
+        self.megablock1 = MaskedSequential(*[
             JasperBlock(
                 in_channels=self.C,
                 repeats=self.R_repeat,
@@ -65,7 +83,7 @@ class CitriNet(nn.Module):
             for i in range(6) # 6 block in first megablock from paper
         ])
 
-        self.megablock2 = nn.Sequential(*[
+        self.megablock2 = MaskedSequential(*[
             JasperBlock(
                 in_channels=self.C,
                 repeats=self.R_repeat,
@@ -75,8 +93,8 @@ class CitriNet(nn.Module):
             )
             for i in range(7) # 7 block in second megablock
         ])
-        
-        self.megablock3 = nn.Sequential(*[
+
+        self.megablock3 = MaskedSequential(*[
             JasperBlock(
                 in_channels=self.C,
                 repeats=self.R_repeat,
@@ -86,7 +104,7 @@ class CitriNet(nn.Module):
             )
             for i in range(8) # 8 block in second megablock
         ])
-
+            
         self.C2 = nn.Sequential(
             nn.Conv1d(
                 self.C,
@@ -100,7 +118,7 @@ class CitriNet(nn.Module):
             nn.BatchNorm1d(640, eps=0.001, momentum=0.1, affine=True),
             SqueezeExcite(640, Gamma),
             nn.ReLU(inplace=True),
-            nn.Dropout(p=0.0),
+            nn.Dropout1d(p=dropout),
         )
 
         self.C3 = nn.Sequential(
@@ -112,18 +130,21 @@ class CitriNet(nn.Module):
             ),
         )
 
-    def forward(self, x):
+    def forward(self, x, lengths):
         x = self.C1(x)
+        x = apply_mask(x, lengths)
         
-        x = self.megablock1(x)
-        x = self.megablock2(x)
-        x = self.megablock3(x)
+        x, lengths = self.megablock1(x, lengths)
+        x, lengths = self.megablock2(x, lengths)
+        x, lengths = self.megablock3(x, lengths)
 
         x = self.C2(x)
+        x = apply_mask(x, lengths)
+        
         x = self.C3(x)
-
+        x = apply_mask(x, lengths)
         return x
-    
+
 
 class JasperBlock(nn.Module):
     def __init__(
@@ -133,9 +154,11 @@ class JasperBlock(nn.Module):
         k: int,
         stride: int,
         gamma: int,
+        dropout: float = 0.1
     ):
         super().__init__()
         self.repeats = repeats
+        self.stride = stride
 
         blocks = [
             ConvBlock(
@@ -143,6 +166,7 @@ class JasperBlock(nn.Module):
                 out_channels=in_channels,
                 k=k,
                 padding=k // 2,
+                dropout=dropout,
             ) for i in range(self.repeats)
         ]
         
@@ -183,18 +207,23 @@ class JasperBlock(nn.Module):
         )
 
         self.relu = nn.ReLU(inplace=True)
-        self.dropout = nn.Dropout(p=0.0)
+        self.dropout = nn.Dropout1d(p=dropout)
 
     def forward(self, x):
-        return self.dropout(
-            self.relu(
-                self.blocks(x) + self.residual(x)
-            )
-        )
+        out = self.blocks(x) + self.residual(x)
+        out = self.relu(out)
+        out = self.dropout(out)
+
+        if self.stride > 1:
+            lengths = (lengths + 1) // self.stride
+
+        out = apply_mask(out, lengths)
+
+        return out, lengths
 
 
 class ConvBlock(nn.Module):
-    def __init__(self, in_channels, out_channels, k, padding):
+    def __init__(self, in_channels, out_channels, k, padding, dropout):
         super().__init__()
 
         self.layers = nn.Sequential(
@@ -217,52 +246,37 @@ class ConvBlock(nn.Module):
             ),
             nn.BatchNorm1d(out_channels, eps=0.001, momentum=0.1, affine=True),
             nn.ReLU(inplace=True),
-            nn.Dropout(p=0.0),
+            nn.Dropout1d(p=dropout),
         )
 
     def forward(self, x):
         return self.layers(x)
-    
+
 
 class SqueezeExcite(nn.Module):
-    def __init__(
-            self,
-            in_channels: int,
-            reduction_ratio: int,
-            context_window: int = -1,
-            interpolation_mode: str = 'nearest',
-    ):
+    def __init__(self, in_channels: int, reduction_ratio: int):
         super().__init__()
-
-        self.context_window = context_window
-        self.interpolation_mode = interpolation_mode
+        self.gap = nn.AdaptiveAvgPool1d(1)
 
         self.fc = nn.Sequential(
-            nn.Linear(
+            nn.Conv1d(
                 in_channels,
                 in_channels // reduction_ratio,
+                kernel_size=1,
                 bias=False,
             ),
             nn.ReLU(inplace=True),
-            nn.Linear(
+            nn.Conv1d(
                 in_channels // reduction_ratio,
                 in_channels,
-                bias=False
+                kernel_size=1,
+                bias=False,
             ),
         )
-        self.gap = nn.AdaptiveAvgPool1d(output_size=1)
+
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        batch_size, channels, timestamps = x.size()
-
         y = self.gap(x)
-        y = y.transpose(1, -1)
         y = self.fc(y)
-        y = y.transpose(1, -1)
-
-        if self.context_window > 0:
-            y = F.interpolate(y, size=timestamps, mode=self.interpolation_mode)
-
-        y = self.sigmoid(y)
-        return x * y
+        return x * self.sigmoid(y)
