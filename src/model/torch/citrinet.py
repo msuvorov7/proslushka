@@ -209,7 +209,7 @@ class JasperBlock(nn.Module):
         self.relu = nn.ReLU(inplace=True)
         self.dropout = nn.Dropout1d(p=dropout)
 
-    def forward(self, x):
+    def forward(self, x, lengths):
         out = self.blocks(x) + self.residual(x)
         out = self.relu(out)
         out = self.dropout(out)
