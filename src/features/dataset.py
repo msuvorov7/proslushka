@@ -1,4 +1,6 @@
 import os
+import random
+
 import torch
 import torchaudio
 import numpy as np
@@ -7,6 +9,8 @@ import pandas as pd
 from torch.utils.data import Dataset, Sampler
 from torch.nn.utils.rnn import pad_sequence
 
+from src.audio_preprocessor.audio_preprocessor import AudioPreprocessor
+
 
 SPEC_AUG = torch.nn.Sequential(
     # torchaudio.transforms.TimeStretch(0.9, fixed_rate=True),
@@ -14,161 +18,138 @@ SPEC_AUG = torch.nn.Sequential(
     torchaudio.transforms.TimeMasking(time_mask_param=10),
 )
 
-
 class AudioDataset(Dataset):
-    """
-    Simple version
-    """
     def __init__(
         self,
         tokenizer,
         mode: str,
         audio_files: pd.DataFrame,
-        spec_aug: torchaudio.transforms = None,
+        spec_aug: torch.nn.Module = None,
         sr: int = 16_000,
-        n_mels: int = 64,
-        n_fft: int = 512,
-        normalize: bool = False,
-        dataset_path = '../data/'
+        n_mels: int = 80,
+        dataset_path='../data/'
     ):
         super().__init__()
         self.tokenizer = tokenizer
         self.mode = mode
         self.audio_files = audio_files
         self.sr = sr
-        self.n_mels = n_mels
-        self.n_fft = n_fft
-        self.normalize = normalize
-        self.spec_aug = spec_aug
         self.dataset_path = dataset_path
+        self.spec_aug = spec_aug
 
-        self.speed_perturb = torchaudio.transforms.SpeedPerturbation(
-            self.sr,
-            [0.9, 1.1, 1.0, 1.0, 1.0],
+        self.preprocessor = AudioPreprocessor(
+            sr=sr,
+            n_mels=n_mels,
+            normalize=True,
         )
-        self.spec = torchaudio.transforms.Spectrogram(
-            n_fft=self.n_fft,
-            win_length=320,
-            hop_length=160,
-            window_fn=torch.hann_window,
-            power=2,
-            wkwargs={"periodic": False},
-        )
-        self.melspec = torchaudio.transforms.MelSpectrogram(
-            sample_rate=self.sr,
-            win_length=320,
-            hop_length=160,
-            n_mels=self.n_mels,
-            window_fn=torch.hann_window,
-            mel_scale="slaney",
-            norm="slaney",
-            n_fft=self.n_fft,
-            f_max=None,
-            f_min=0,
-            wkwargs={"periodic": False},
-        )
-        self.melscale = torchaudio.transforms.MelScale(
-            n_mels=self.n_mels,
-            sample_rate=self.sr,
-            n_stft=self.n_fft // 2 + 1,
-            f_min=0.0,
-            mel_scale="slaney",
-            norm="slaney",
-        )
-        self.preemphasis = torchaudio.transforms.Preemphasis(coeff=0.97)
+        
+        # Кэш для ресэмплеров (чтобы не пересоздавать фильтры каждый раз)
+        self.resamplers = {}
+
+    def _get_resampler(self, orig_freq):
+        if orig_freq not in self.resamplers:
+            self.resamplers[orig_freq] = torchaudio.transforms.Resample(orig_freq, self.sr)
+        return self.resamplers[orig_freq]
 
     def __getitem__(self, item: int) -> dict:
         audio_path = self.audio_files["audio_filepath"][item]
         transcript = self.audio_files["text"][item]
-        transcript_tensor = torch.tensor(self.tokenizer.encode(transcript).ids, dtype=torch.int64)
-
+        
         try:
-            waveform, sample_rate = torchaudio.load(os.path.join(self.dataset_path, audio_path), normalize=True)
-            waveform = torchaudio.transforms.Resample(sample_rate, self.sr)(waveform)
+            full_path = os.path.join(self.dataset_path, audio_path)
+            waveform, sample_rate = torchaudio.load(full_path, normalize=True)
+            
+            # Быстрый ресэмплинг
+            if sample_rate != self.sr:
+                waveform = self._get_resampler(sample_rate)(waveform)
 
-            if self.mode == "train":
-                # Applies the speed perturbation augmentation
-                waveform, _ = self.speed_perturb(waveform)
+            # Получаем нормализованную лог-мел спектрограмму
+            log_mel_spec = self.preprocessor(waveform)
 
-            waveform = self.preemphasis(waveform)
+            # Применяем SpecAugment только в режиме train и ПОСЛЕ нормализации
+            if self.mode == "train" and self.spec_aug is not None:
+                log_mel_spec = self.spec_aug(log_mel_spec)
 
-            # apply spectrogram augmentations
-            if self.spec_aug is None:
-                mel_spectrogram = self.melspec(waveform)
-            else:
-                # Convert to power spectrogram
-                spectrogram = self.spec(waveform)
-                # Apply SpecAugment
-                aug_spectrogram = self.spec_aug(spectrogram)
-                # Convert to mel-scale
-                mel_spectrogram = self.melscale(aug_spectrogram)
-        except:
-            with open('broken.txt', 'a') as file:
-                file.write(audio_path)
-                file.write('\n')
+            transcript_tensor = torch.tensor(self.tokenizer.encode(transcript).ids, dtype=torch.int64)
+            
+            return {
+                "melspec": log_mel_spec.squeeze(0),
+                "text": transcript_tensor,
+                "input_length": log_mel_spec.shape[-1],
+                "label_length": len(transcript_tensor),
+                "is_valid": True,
+            }
 
-            mel_spectrogram = torch.zeros(1, self.n_mels, 100, dtype=torch.float32)
-            transcript_tensor = torch.zeros(5, dtype=torch.int64)
-
-        log_mel_spec = torch.log(torch.clamp(mel_spectrogram, min=1e-10))
-
-        if self.normalize:
-            log_mel_spec = (log_mel_spec - log_mel_spec.mean(dim=2, keepdim=True)) / (log_mel_spec.std(dim=2, keepdim=True) + 1e-8)
-
-        input_length = log_mel_spec.shape[-1]
-        label_length = len(transcript_tensor)
-
-        return {
-            "melspec": log_mel_spec.squeeze(0),
-            "text": transcript_tensor,
-            "input_length": input_length,
-            "label_length": label_length,
-        }
+        except Exception as e:
+            # Возвращаем заглушку, чтобы не ронять DataLoader
+            return {
+                "melspec": torch.zeros(self.preprocessor.n_mels, 1, dtype=torch.float32),
+                "text": torch.zeros(0, dtype=torch.int64),
+                "input_length": 1,
+                "label_length": 0,
+                "is_valid": False # По этому флагу мы выкинем мусор в collate_fn
+            }
 
     def __len__(self):
         return len(self.audio_files)
 
 
 def collate_fn(batch):
+    # Фильтруем битые файлы, отловленные в __getitem__
+    valid_batch = [b for b in batch if b["is_valid"]]
+    
+    # Если весь батч оказался битым (крайне редкий случай)
+    if len(valid_batch) == 0:
+        return None 
+
     melspecs = []
     texts = []
     input_lengths = []
     label_lengths = []
-    for row in batch:
-        melspecs.append(torch.transpose(row["melspec"], 0, 1))
+    
+    for row in valid_batch:
+        # Транспонируем для pad_sequence (нужно чтобы время было первым измерением)
+        melspecs.append(row["melspec"].transpose(0, 1))
         texts.append(row["text"])
         input_lengths.append(row["input_length"])
         label_lengths.append(row["label_length"])
 
+    # Паддинг спектрограмм
     melspecs = pad_sequence(melspecs, batch_first=True)
-    melspecs = torch.transpose(melspecs, 1, 2)
+    # Возвращаем размерность обратно: (batch, n_mels, time)
+    melspecs = melspecs.transpose(1, 2)
 
+    # Паддинг текстов
     texts = pad_sequence(texts, batch_first=True)
+    
     return (
         melspecs,
         texts,
-        torch.tensor(input_lengths),
-        torch.tensor(label_lengths),
+        torch.tensor(input_lengths, dtype=torch.long),
+        torch.tensor(label_lengths, dtype=torch.long),
     )
 
 
-class BatchSampler(Sampler):
+class FastBatchSampler(Sampler):
     """
-    Sample по длине аудио
+    O(1) Sampler. Группирует отсортированные по длине индексы в батчи 
+    и перемешивает порядок самих батчей.
     """
     def __init__(self, sorted_inds: list, batch_size: int):
         self.sorted_inds = sorted_inds
         self.batch_size = batch_size
+        
+        # Заранее нарезаем индексы на чанки
+        self.batches = [
+            self.sorted_inds[i : i + self.batch_size] 
+            for i in range(0, len(self.sorted_inds), self.batch_size)
+        ]
 
     def __iter__(self):
-        inds = self.sorted_inds.copy()
-        while len(inds):
-            to_take = min(self.batch_size, len(inds))
-            start_ind = np.random.randint(low=0, high=len(inds) - to_take + 1)
-            batch_inds = inds[start_ind:start_ind + to_take]
-            del inds[start_ind:start_ind + to_take]
-            for ind in batch_inds:
-                yield ind
+        # Перемешиваем батчи, чтобы эпохи отличались
+        random.shuffle(self.batches)
+        for batch in self.batches:
+            yield from batch
 
     def __len__(self):
         return len(self.sorted_inds)
