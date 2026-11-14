@@ -1,5 +1,4 @@
 import numpy as np
-from scipy import signal
 import webrtcvad
 
 
@@ -98,17 +97,24 @@ class VoiceActivityDetector:
         return segments
     
     def _resample_audio(self, audio: np.ndarray, original_sr: int, target_sr: int) -> np.ndarray:
-        """Переоценка частоты дискретизации аудио"""
+        """Переоценка частоты дискретизации аудио (Pure Numpy)"""
         if original_sr == target_sr:
             return audio
             
         duration = len(audio) / original_sr
         num_samples = int(duration * target_sr)
         
-        # Используем scipy для ресемплинга
-        resampled = signal.resample(audio, num_samples)
+        # Создаем временную шкалу для оригинального аудио
+        original_time = np.linspace(0, duration, len(audio))
+        
+        # Создаем временную шкалу для целевого аудио
+        target_time = np.linspace(0, duration, num_samples)
+        
+        # Быстрая линейная интерполяция (написана на C внутри numpy)
+        resampled = np.interp(target_time, original_time, audio)
+        
         return resampled
-    
+
     def _float_to_int16(self, audio: np.ndarray) -> np.ndarray:
         """Конвертация float аудио в int16"""
         # Нормализация к диапазону [-1, 1] если нужно

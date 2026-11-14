@@ -10,7 +10,6 @@ import pytorch_lightning as pl
 
 import src.decoder.greedy_decoder as greedy_decoder
 import src.features.dataset as dataset
-import src.model.loss as loss
 import src.model.config as config
 import src.model.lightning_model as lightning_model
 
@@ -70,7 +69,7 @@ if __name__ == '__main__':
 
     train_manifest = prepare_manifest(train_manifest, 0.5, 41)
     valid_manifest = prepare_manifest(valid_manifest, 0.5, 41)
-    logging.info(f'manifests prepared: {train_manifest.duration.sum() / 3600}')
+    logging.info(f'manifests prepared: {train_manifest.duration.sum() / 3600:.2f} hours')
 
     if args.model == 'quartznet':
         pre_trained_sd = 'models/quartznet15x5_sber_transfer.state_dict'
@@ -96,8 +95,6 @@ if __name__ == '__main__':
         spec_aug=dataset.SPEC_AUG,
         sr=16_000,
         n_mels=pre_trained_model.asr_model['n_mels'],
-        n_fft=512,
-        normalize=True,
         dataset_path=args.dataset_path,
     )
     valid_dataset = dataset.AudioDataset(
@@ -107,8 +104,6 @@ if __name__ == '__main__':
         spec_aug=None,
         sr=16_000,
         n_mels=pre_trained_model.asr_model['n_mels'],
-        n_fft=512,
-        normalize=True,
         dataset_path=args.dataset_path,
     )
 
@@ -116,7 +111,7 @@ if __name__ == '__main__':
         train_dataset,
         batch_size=args.batch_size,
         collate_fn=dataset.collate_fn,
-        sampler=dataset.BatchSampler(np.argsort(train_manifest['duration_int'].values).tolist()[::-1], args.batch_size),
+        sampler=dataset.FastBatchSampler(np.argsort(train_manifest['duration_int'].values).tolist()[::-1], args.batch_size),
         # num_workers=8,
     )
 
@@ -137,10 +132,10 @@ if __name__ == '__main__':
         dirpath="./ckpts",
         save_last=True,
         save_top_k=-1,
-        filename="{args.model}-{epoch:02d}-{val_loss:.3f}",
+        filename=f"{args.model}-{{epoch:02d}}-{{valid_loss:.3f}}",
         every_n_epochs=1,
     )
-    lr_callback =pl.callbacks.LearningRateMonitor(
+    lr_callback = pl.callbacks.LearningRateMonitor(
         logging_interval='step',
     )
 
@@ -159,27 +154,24 @@ if __name__ == '__main__':
     )
 
     if args.checkpoint_path:
-        # for example: checkpoint_path = 'quartznet_ckpts/last.ckpt'
         model = lightning_model.ASRLightning.load_from_checkpoint(args.checkpoint_path)
-
         trainer.fit(
             model,
             train_dataloaders=train_loader,
             val_dataloaders=valid_loader,
             ckpt_path=args.checkpoint_path,
         )
-
     else:
         model = lightning_model.ASRLightning(
             model=pre_trained_model.asr_model['model'],
-            criterion=loss.CTCLoss(pre_trained_model.model_tokenizer.get_vocab_size()),
+            criterion=torch.nn.CTCLoss(blank=0, zero_infinity=True), # Стандартный безопасный лосс
             decoder=greedy_decoder.GreedyCTCDecoder(
                 tokenizer=pre_trained_model.model_tokenizer,
-                blank=pre_trained_model.model_tokenizer.get_vocab_size()
+                blank=0 # Бланк теперь всегда 0
             ),
             t_max=int(len(train_dataset) / (args.batch_size * args.accumulate_grad_batches) + 1) * args.max_epochs,
             inputs_length_scale=pre_trained_model.asr_model['input_scale'],
-            lr=0.003,
+            lr=0.005,
         )
 
         trainer.fit(
@@ -188,17 +180,25 @@ if __name__ == '__main__':
             val_dataloaders=valid_loader,
         )
 
-    # save state dict
+    # Сохраняем веса
     torch.save(model.model.state_dict(), f'models/{args.model}_{args.max_epochs}_epoch.state_dict')
     logging.info('state dict saved in models/')
 
-    # save in onnx format
-    dummy_input = torch.randn(1, pre_trained_model.asr_model['n_mels'], 256, dtype=torch.float32)
+    # Сохраняем ONNX (теперь с поддержкой lengths для масок)
+    model.model.eval().to('cpu')
+    dummy_audio = torch.randn(1, pre_trained_model.asr_model['n_mels'], 256, dtype=torch.float32)
+    dummy_lengths = torch.tensor([256], dtype=torch.long)
+    
     torch.onnx.export(
-        model.model.eval().to('cpu'),
-        dummy_input,
+        model.model,
+        (dummy_audio, dummy_lengths), # Передаем кортеж из аудио и длин
         f'models/{args.model}_{args.max_epochs}_epoch.onnx',
-        input_names=['mel_spec'],
-        dynamic_axes={'mel_spec': {0: 'batch_size', 2: 'time'}}
+        input_names=['mel_spec', 'lengths'],
+        output_names=['output'],
+        dynamic_axes={
+            'mel_spec': {0: 'batch_size', 2: 'time'},
+            'lengths': {0: 'batch_size'},
+            'output': {0: 'batch_size', 2: 'time'}
+        }
     )
     logging.info('onnx model saved in models/')

@@ -25,13 +25,33 @@ def log_softmax(x, axis=None):
     return tmp - out
 
 
-def pad_sequence(batch: list):
-    max_len = max([len(row) for row in batch])
+# def pad_sequence(batch: list):
+#     max_len = max([len(row) for row in batch])
+#     padded = []
+#     for row in batch:
+#         to_pad = max_len - len(row)
+#         padded.append(np.concatenate([row, np.zeros(to_pad)]))
+#     return np.vstack(padded)
+
+
+def pad_melspec_sequence(batch: list):
+    """
+    Принимает список 2D спектрограмм [n_mels, time].
+    Возвращает батч [batch_size, n_mels, max_time] и массив длин.
+    """
+    max_len = max([spec.shape[1] for spec in batch])
     padded = []
-    for row in batch:
-        to_pad = max_len - len(row)
-        padded.append(np.concatenate([row, np.zeros(to_pad)]))
-    return np.vstack(padded)
+    lengths = []
+    
+    for spec in batch:
+        length = spec.shape[1]
+        lengths.append(length)
+        to_pad = max_len - length
+        # Добиваем нулями только по оси времени (axis=1)
+        padded_spec = np.pad(spec, ((0, 0), (0, to_pad)), mode='constant', constant_values=0)
+        padded.append(padded_spec)
+        
+    return np.stack(padded), np.array(lengths, dtype=np.int64)
 
 
 class ASRModel:
@@ -96,23 +116,16 @@ class ASRModel:
             }]
 
         return timestamps
-    
-    def asr_batch_loader(self, audio, timestamps, batch_size: int):
-        for i in range(0, len(timestamps), batch_size):
-            batch = pad_sequence(
-                [audio[ts['begin_ids']: ts['end_ids']] for ts in timestamps[i: i + batch_size]]
-            )
-            yield batch
 
-    def asr_encoder_forward(self, batch: np.ndarray):
+    def process_single_audio(self, wav: np.ndarray) -> np.ndarray:
+        """Переводит 1D аудио в нормализованную лог-мел спектрограмму"""
         mel_spec = librosa.melspectrogram(
-            y=batch,
+            y=wav,
             sr=self.target_sr,
             n_fft=512,
             hop_length=160,
             win_length=320,
             window='hann',
-            pad_mode='reflect',
             power=2,
             fmin=0,
             n_mels=80,
@@ -121,19 +134,51 @@ class ASRModel:
         )
 
         log_mel_spec = np.log(np.clip(mel_spec, a_min=1e-10, a_max=np.inf)).astype(np.float32)
+        
+        mean = log_mel_spec.mean(axis=1, keepdims=True)
+        std = log_mel_spec.std(axis=1, keepdims=True)
+        log_mel_spec = (log_mel_spec - mean) / (std + 1e-8)
+        
+        return log_mel_spec
+    
+    def asr_batch_loader(self, audio, timestamps, batch_size: int):
+        for i in range(0, len(timestamps), batch_size):
+            batch_specs = []
+            for ts in timestamps[i: i + batch_size]:
+                # Вырезаем кусок аудио
+                segment = audio[ts['begin_ids']: ts['end_ids']]
+                # СРАЗУ делаем из него спектрограмму
+                spec = self.process_single_audio(segment)
+                batch_specs.append(spec)
+            
+            # Паддим уже готовые спектрограммы
+            padded_batch, lengths = pad_melspec_sequence(batch_specs)
+            yield padded_batch, lengths
+
+    def asr_encoder_forward(self, batch_specs: np.ndarray, lengths: np.ndarray):
+        # Теперь передаем два аргумента в ONNX (спектрограммы и их длины)
         model_input = {
-            self.asr_encoder.get_inputs()[0].name: log_mel_spec
+            self.asr_encoder.get_inputs()[0].name: batch_specs,
+            self.asr_encoder.get_inputs()[1].name: lengths
         }
         model_output = self.asr_encoder.run(None, model_input)[0]
+        
         output = model_output.transpose(2, 0, 1)
         output = log_softmax(output, axis=2)
         output = output.transpose(1, 0, 2)
 
         tokens = output.argmax(axis=2).tolist()
 
-        # drop duplicated tokens
-        tokens = [[key for key, _ in groupby(row)] for row in tokens]
-        return [_.replace(' ##', '') for _ in self.asr_tokenizer.decode_batch(tokens, skip_special_tokens=True)]
+        decoded_texts = []
+        for seq in tokens:
+            # 1. Схлопываем дубликаты
+            seq_collapsed = [key for key, _ in groupby(seq)]
+            # 2. Удаляем BLANK (индекс 0)
+            seq_cleaned = [idx for idx in seq_collapsed if idx != 0]
+            decoded_texts.append(seq_cleaned)
+
+        # Токенизатор сам уберет спецсимволы и расставит пробелы благодаря Metaspace
+        return self.asr_tokenizer.decode_batch(decoded_texts, skip_special_tokens=True)
     
     def punct_loader(self, text: str, max_length: int, batch_size: int):
         words = text.split()
@@ -189,8 +234,9 @@ class ASRModel:
         audio = self.preprocess(audio, sample_rate)
         timestamps = self.split_audio(audio, 30, 5)
 
-        for batch in self.asr_batch_loader(audio, timestamps, batch_size):
-            encoder_output = self.asr_encoder_forward(batch)
+        # Распаковываем batch_specs и lengths
+        for batch_specs, lengths in self.asr_batch_loader(audio, timestamps, batch_size):
+            encoder_output = self.asr_encoder_forward(batch_specs, lengths)
             acoustic_output += encoder_output
         
         if self.punct_model is not None:

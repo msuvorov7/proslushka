@@ -24,10 +24,10 @@ def create_archive(models_path: str) -> None:
         zf.write('src/app/lib/webrtcvad.py', 'src/app/lib/webrtcvad.py')
         zf.write('src/app/requirements.txt', 'requirements.txt')
         # asr
-        zf.write(models_path + 'citrinet_384_10epoch.onnx', 'models/citrinet_model.onnx')
-        zf.write(models_path + 'tokenizer.json', 'models/citrinet_tokenizer.json')
+        zf.write(models_path + 'citrinet_6_epoch.onnx', 'models/citrinet_model.onnx')
+        zf.write(models_path + 'citrinet_tokenizer.json', 'models/citrinet_tokenizer.json')
         # punctuation
-        zf.write(models_path + 'comma_model_fp16.onnx', 'models/comma_model.onnx')
+        zf.write(models_path + 'comma_model.onnx', 'models/comma_model.onnx')
         zf.write(models_path + 'distilrubert_tokenizer.json', 'models/distilrubert_tokenizer.json')
         # ffmpeg
         zf.write('artifacts/ffmpeg-6.0.1-amd64-static/ffmpeg', 'ffmpeg')

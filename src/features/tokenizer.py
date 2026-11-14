@@ -1,11 +1,10 @@
 from tokenizers import Tokenizer
-from tokenizers.models import WordLevel, WordPiece
-from tokenizers.pre_tokenizers import Split, Whitespace
-from tokenizers.trainers import WordPieceTrainer
-
+from tokenizers.models import WordLevel, BPE, WordPiece
+from tokenizers.pre_tokenizers import Split, Metaspace
+from tokenizers.decoders import Metaspace as MetaspaceDecoder
+from tokenizers.trainers import BpeTrainer, WordPieceTrainer
 
 CHARS: list = [
-    ' ',
     'а',
     'б',
     'в',
@@ -39,21 +38,25 @@ CHARS: list = [
     'ю',
     'я',
 ]
-INT_TO_CHAR = dict(enumerate(CHARS))
-CHAR_TO_INT = {v: k for k, v in INT_TO_CHAR.items()}
 
+quartznet_vocab = {"[BLANK]": 0, "[UNK]": 1, " ": 2}
+for i, char in enumerate(CHARS):
+    quartznet_vocab[char] = i + 3
 
-QUARTZNET_TOKENIZER = Tokenizer(WordLevel(vocab=CHAR_TO_INT, unk_token=" "))
-QUARTZNET_TOKENIZER.pre_tokenizer = Split(r"", "isolated")
+QUARTZNET_TOKENIZER = Tokenizer(WordLevel(vocab=quartznet_vocab, unk_token="[UNK]"))
+QUARTZNET_TOKENIZER.pre_tokenizer = Split(pattern=r"", behavior="isolated") 
 
-CITRINET_TOKENIZER = Tokenizer(WordPiece())
-CITRINET_TOKENIZER.pre_tokenizer = Whitespace()
-CITRINET_TRAINER = WordPieceTrainer(vocab_size=256, initial_alphabet=CHARS[1:], special_tokens=["[PAD]"])
+CITRINET_TOKENIZER = Tokenizer(BPE(unk_token="[UNK]"))
+CITRINET_TOKENIZER.pre_tokenizer = Metaspace(replacement='_')
+CITRINET_TOKENIZER.decoder = MetaspaceDecoder(replacement='_')
+CITRINET_TRAINER = BpeTrainer(vocab_size=256, initial_alphabet=CHARS, special_tokens=["[BLANK]", "[UNK]"])
 
-CONFORMER_TOKENIZER = Tokenizer(WordPiece())
-CONFORMER_TOKENIZER.pre_tokenizer = Whitespace()
-CONFORMER_TRAINER = WordPieceTrainer(vocab_size=1024, initial_alphabet=CHARS[1:], special_tokens=["[PAD]"])
+CONFORMER_TOKENIZER = Tokenizer(WordPiece(unk_token="[UNK]"))
+CONFORMER_TOKENIZER.pre_tokenizer = Metaspace(replacement='_')
+CONFORMER_TOKENIZER.decoder = MetaspaceDecoder(replacement='_')
+CONFORMER_TRAINER = WordPieceTrainer(vocab_size=1024, initial_alphabet=CHARS, special_tokens=["[BLANK]", "[UNK]"])
 
-FASTCONFORMER_TOKENIZER = Tokenizer(WordPiece())
-FASTCONFORMER_TOKENIZER.pre_tokenizer = Whitespace()
-FASTCONFORMER_TRAINER = WordPieceTrainer(vocab_size=1024, initial_alphabet=CHARS[1:], special_tokens=["[PAD]"])
+FASTCONFORMER_TOKENIZER = Tokenizer(WordPiece(unk_token="[UNK]"))
+FASTCONFORMER_TOKENIZER.pre_tokenizer = Metaspace(replacement='_')
+FASTCONFORMER_TOKENIZER.decoder = MetaspaceDecoder(replacement='_')
+FASTCONFORMER_TRAINER = WordPieceTrainer(vocab_size=1024, initial_alphabet=CHARS, special_tokens=["[BLANK]", "[UNK]"])
