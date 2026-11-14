@@ -60,3 +60,8 @@ FASTCONFORMER_TOKENIZER = Tokenizer(WordPiece(unk_token="[UNK]"))
 FASTCONFORMER_TOKENIZER.pre_tokenizer = Metaspace(replacement='_')
 FASTCONFORMER_TOKENIZER.decoder = MetaspaceDecoder(replacement='_')
 FASTCONFORMER_TRAINER = WordPieceTrainer(vocab_size=1024, initial_alphabet=CHARS, special_tokens=["[BLANK]", "[UNK]"])
+
+ZIPFORMER_TOKENIZER = Tokenizer(BPE(unk_token="[UNK]"))
+ZIPFORMER_TOKENIZER.pre_tokenizer = Metaspace(replacement='_')
+ZIPFORMER_TOKENIZER.decoder = MetaspaceDecoder(replacement='_')
+ZIPFORMER_TRAINER = BpeTrainer(vocab_size=1024, initial_alphabet=CHARS, special_tokens=["[BLANK]", "[UNK]"])

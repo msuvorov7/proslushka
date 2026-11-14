@@ -8,6 +8,7 @@ import src.model.torch.quartznet as quartznet
 import src.model.torch.citrinet as citrinet
 import src.model.torch.conformer as conformer
 import src.model.torch.fastconformer as fastconformer
+import src.model.torch.zipformer as zipformer
 
 
 class ASRModel:
@@ -24,6 +25,7 @@ class ASRModel:
             'citrinet': tokenizer.CITRINET_TOKENIZER,
             'conformer': tokenizer.CONFORMER_TOKENIZER,
             'fastconformer': tokenizer.FASTCONFORMER_TOKENIZER,
+            'zipformer': tokenizer.ZIPFORMER_TOKENIZER,
         }
 
         self.model_name = model_name
@@ -84,6 +86,18 @@ class ASRModel:
                     out_dim=vocab_size,
                 ),
                 'n_mels': 80,
+            },
+            'zipformer': {
+                'input_scale': 8,
+                'model': zipformer.ZipformerCTC(
+                    vocab_size=vocab_size,
+                    n_mels=80,
+                    d_model=256,
+                    n_layers=12, # 12 слоев дадут около 30-35 млн параметров
+                    n_heads=4,
+                    attn_head_dim=24,
+                ),
+                'n_mels': 80,
             }
         }
 
@@ -111,5 +125,10 @@ class ASRModel:
             self.model_tokenizer.train_from_iterator(
                 corpus,
                 tokenizer.FASTCONFORMER_TRAINER,
+            )
+        elif self.model_name == 'zipformer':
+            self.model_tokenizer.train_from_iterator(
+                corpus,
+                tokenizer.ZIPFORMER_TRAINER,
             )
         os.environ['TOKENIZERS_PARALLELISM'] = 'false'
