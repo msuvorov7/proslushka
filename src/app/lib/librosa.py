@@ -5,7 +5,6 @@ Preprocessing from librosa
 import warnings
 
 import numpy as np
-import scipy
 import soxr
 from numpy.lib.stride_tricks import as_strided
 
@@ -51,8 +50,18 @@ def get_window(
         return window(Nx)
 
     elif isinstance(window, (str, tuple)) or np.isscalar(window):
-        win: np.ndarray = scipy.signal.get_window(window, Nx, fftbins=fftbins)
-        return win
+        win_name = window if isinstance(window, str) else window[0]
+        
+        if win_name == 'hann':
+            # Чистая numpy реализация окна Ганна
+            if fftbins:
+                # Периодическое окно (используется в STFT по умолчанию)
+                return 0.5 - 0.5 * np.cos(2.0 * np.pi * np.arange(Nx) / Nx)
+            else:
+                # Симметричное окно
+                return 0.5 - 0.5 * np.cos(2.0 * np.pi * np.arange(Nx) / (Nx - 1))
+        else:
+            raise NotImplementedError(f"Pure numpy implementation for window '{win_name}' is not provided.")
 
     elif isinstance(window, (np.ndarray, list)):
         if len(window) == Nx:
@@ -684,21 +693,26 @@ def preemphasis(
     zi = None,
     return_zf: bool = False,
 ) -> np.ndarray:
-    b = np.asarray([1.0, -coef], dtype=y.dtype)
-    a = np.asarray([1.0], dtype=y.dtype)
 
     if zi is None:
-        # Initialize the filter to implement linear extrapolation
+        # Линейная экстраполяция для начального состояния
         zi = 2 * y[..., 0:1] - y[..., 1:2]
 
     zi = np.atleast_1d(zi)
 
-    y_out: np.ndarray
-    z_f: np.ndarray
-
-    y_out, z_f = scipy.signal.lfilter(b, a, y, zi=np.asarray(zi, dtype=y.dtype))
+    # Создаем пустой массив того же размера
+    y_out = np.empty_like(y)
+    
+    # Первый элемент: y[0] + zi
+    y_out[..., 0] = y[..., 0] + zi[..., 0]
+    
+    # Остальные элементы: y[n] - coef * y[n-1]
+    if y.shape[-1] > 1:
+        y_out[..., 1:] = y[..., 1:] - coef * y[..., :-1]
 
     if return_zf:
+        # Финальное состояние фильтра
+        z_f = np.asarray([-coef * y[..., -1]])
         return y_out, z_f
 
     return y_out
