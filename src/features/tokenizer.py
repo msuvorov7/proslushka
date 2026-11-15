@@ -49,7 +49,7 @@ QUARTZNET_TOKENIZER.pre_tokenizer = Split(pattern=r"", behavior="isolated")
 CITRINET_TOKENIZER = Tokenizer(BPE(unk_token="[UNK]"))
 CITRINET_TOKENIZER.pre_tokenizer = Metaspace(replacement='_')
 CITRINET_TOKENIZER.decoder = MetaspaceDecoder(replacement='_')
-CITRINET_TRAINER = BpeTrainer(vocab_size=256, initial_alphabet=CHARS, special_tokens=["[BLANK]", "[UNK]"])
+CITRINET_TRAINER = BpeTrainer(vocab_size=257, initial_alphabet=CHARS, special_tokens=["[BLANK]", "[UNK]"])
 
 CONFORMER_TOKENIZER = Tokenizer(WordPiece(unk_token="[UNK]"))
 CONFORMER_TOKENIZER.pre_tokenizer = Metaspace(replacement='_')
