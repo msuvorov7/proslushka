@@ -74,7 +74,7 @@ if __name__ == '__main__':
     if args.model == 'quartznet':
         pre_trained_sd = 'models/quartznet15x5_sber_transfer.state_dict'
     elif args.model == 'citrinet':
-        pre_trained_sd = 'models/citrinet384_10epoch.state_dict'
+        pre_trained_sd = 'models/citrinet_384_transfer.state_dict'
     elif args.model == 'conformer':
         pre_trained_sd = 'models/conformer_small_176.state_dict'
     elif args.model == 'fastconformer':
@@ -84,7 +84,7 @@ if __name__ == '__main__':
         model_name=args.model,
         corpus=train_manifest['text'].drop_duplicates().values,
         # pre_trained_tokenizer=f"models/{args.model}_tokenizer.json",
-        # pre_trained_sd=pre_trained_sd,
+        pre_trained_sd=pre_trained_sd,
     )
     pre_trained_model.model_tokenizer.save(f"models/{args.model}_tokenizer.json")
 
