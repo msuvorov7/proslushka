@@ -7,9 +7,9 @@ import torch.nn.functional as F
 
 def apply_mask(x, lengths):
     """Обнуляет всё, что выходит за пределы реальной длины аудио"""
-    max_len = x.size(2)
-    mask = torch.arange(max_len, device=x.device).expand(x.size(0), -1) < lengths.unsqueeze(1)
-    return x * mask.unsqueeze(1).float()
+    max_len = x.size(1)
+    mask = torch.arange(max_len, device=x.device).unsqueeze(0) < lengths.unsqueeze(1)
+    return x * mask.unsqueeze(-1).float()
 
 
 def conv_out_length(
@@ -190,13 +190,13 @@ class BiasNorm(nn.Module):
 def rel_shift(x: torch.Tensor) -> torch.Tensor:
     """x: (B, H, T, 2T-1) -> (B, H, T, T)"""
     b, h, t, t2_minus_1 = x.size()
-    # Добавляем колонку нулей
-    zero_pad = torch.zeros((b, h, t, 1), device=x.device, dtype=x.dtype)
-    x_padded = torch.cat([zero_pad, x], dim=-1) # (B, H, T, 2T)
-    # Решейпим и сдвигаем
-    x_padded = x_padded.view(b, h, t2_minus_1 + 1, t) # (B, H, 2T, T)
-    # Берем нужный кусок
-    return x_padded[:, :, 1:t+1, :] # (B, H, T, T)
+    t = x.size(-2)
+    i = torch.arange(t, device=x.device).unsqueeze(1)
+    j = torch.arange(t, device=x.device).unsqueeze(0)
+    idx = i - j + t - 1  # (T, T), значения в [0, 2T-2]
+    # expand подгоняет размер индекса под (B, H, T, T)
+    idx_expanded = idx.expand(x.size(0), x.size(1), t, t)
+    return x.gather(-1, idx_expanded)
 
 
 class SwooshL(nn.Module):
@@ -381,7 +381,7 @@ class ConvolutionModule(nn.Module):
 class BypassModule(nn.Module):
     def __init__(self, d_model: int, min_scale: float = 0.4):
         super().__init__()
-        self.scale = nn.Parameter(torch.ones(d_model))
+        self.scale = nn.Parameter(torch.ones(d_model) * 0.9)
         self.min_scale = min_scale
 
     def forward(self, x: torch.Tensor, block_out: torch.Tensor) -> torch.Tensor:
