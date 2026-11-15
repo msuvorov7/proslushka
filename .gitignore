@@ -7,3 +7,4 @@ broken.txt
 ckpts/*
 *.zip
 src/tests/*
+test.py
