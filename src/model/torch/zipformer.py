@@ -88,21 +88,28 @@ class ConvSubsampling(nn.Module):
     @staticmethod
     def evaluate_conv_out_dim(in_dim: int, kernel_size: int, stride: int, padding: int) -> int:
         return int((in_dim + 2 * padding - kernel_size) / stride) + 1
+    
+    def _apply_mask(self, x, lengths):
+        max_len = x.size(2)
+        mask = torch.arange(max_len, device=x.device).expand(x.size(0), -1) < lengths.unsqueeze(1)
+        return x * mask.unsqueeze(1).unsqueeze(-1).float()
 
     def forward(self, features: torch.Tensor, lengths: torch.Tensor):
         x = features.unsqueeze(1)  # (B, 1, T, n_mels)
 
         x = self.conv_block(x)
         lengths = conv_out_length(lengths, self.kernel_size, self.stride, self.padding)
-        x = apply_mask(x, lengths)
+        # print(x.shape)
+        x = self._apply_mask(x, lengths)
+        # print(x.shape)
 
         x = self.dw_block_1(x)
         lengths = conv_out_length(lengths, self.kernel_size, self.stride, self.padding)
-        x = apply_mask(x, lengths)
+        x = self._apply_mask(x, lengths)
 
         x = self.dw_block_2(x)  # (B, d_model, T // 8, n_mels // 8)
         lengths = conv_out_length(lengths, self.kernel_size, self.stride, self.padding)
-        x = apply_mask(x, lengths)
+        x = self._apply_mask(x, lengths)
 
         batch_size, n_channels, time, freq = x.shape
         x = x.permute(0, 2, 1, 3).reshape(batch_size, time, n_channels * freq)
@@ -193,7 +200,7 @@ def rel_shift(x: torch.Tensor) -> torch.Tensor:
 
 
 class SwooshL(nn.Module):
-    def __init__():
+    def __init__(self):
         super().__init__()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -201,7 +208,7 @@ class SwooshL(nn.Module):
 
 
 class SwooshR(nn.Module):
-    def __init__():
+    def __init__(self):
         super().__init__()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -408,17 +415,17 @@ class ZipformerBlock(nn.Module):
         self.bypass = BypassModule(d_model, bypass_min_scale)
 
         # Тот самый гениальный хак для стабилизации градиентов
-        for module, name in (
-            (self.nla, "out_proj"), (self.self_attn1, "linear_out"),
-            (self.self_attn2, "linear_out"), (self.ff1, "linear2"),
-            (self.ff2, "linear2"), (self.conv1, "pointwise_conv2"),
-            (self.conv2, "pointwise_conv2"),
-        ):
-            layer = getattr(module, name)
-            with torch.no_grad():
-                layer.weight.mul_(initial_scale)
-                if layer.bias is not None:
-                    layer.bias.mul_(initial_scale)
+        # for module, name in (
+        #     (self.nla, "out_proj"), (self.self_attn1, "linear_out"),
+        #     (self.self_attn2, "linear_out"), (self.ff1, "linear2"),
+        #     (self.ff2, "linear2"), (self.conv1, "pointwise_conv2"),
+        #     (self.conv2, "pointwise_conv2"),
+        # ):
+        #     layer = getattr(module, name)
+        #     with torch.no_grad():
+        #         layer.weight.mul_(initial_scale)
+        #         if layer.bias is not None:
+        #             layer.bias.mul_(initial_scale)
 
     def forward(self, x: torch.Tensor, pos_emb: torch.Tensor, lengths: torch.Tensor):
         residual = x
@@ -512,4 +519,4 @@ class ZipformerCTC(nn.Module):
         
         # Возвращаем в формате, который ожидает ASRLightning
         # logits: (B, T, Vocab), out_lengths: (B,)
-        return logits, out_lengths
+        return logits
