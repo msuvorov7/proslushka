@@ -45,14 +45,10 @@ class ASRLightning(pl.LightningModule):
         melspecs, texts, input_lengths, label_lengths = batch
 
         # Forward pass
-        # Выход модели: [batch, channels, time] -> [time, batch, channels] для CTCLoss
-        output = self.model(melspecs, input_lengths).permute(2, 0, 1)
-        output = F.log_softmax(output, dim=2)
-        
-        # Безопасный расчет длин для CTCLoss
-        out_lengths = (input_lengths.float() / self.inputs_length_scale).ceil().int()
-        # Защита: длина не может быть больше реального размера тензора
-        out_lengths = torch.clamp(out_lengths, max=output.shape[0])
+        # Выход модели: [batch, time, channels] -> [time, batch, channels] для CTCLoss
+        logits, out_lengths = self.model(melspecs, input_lengths)
+        # (B, T', V) -> (T', B, V) для CTCLoss
+        output = F.log_softmax(logits.transpose(0, 1), dim=2)
         
         # Считаем лосс
         loss = self.criterion(
