@@ -52,7 +52,7 @@ if __name__ == '__main__':
     args_parser.add_argument('--accumulate_grad_batches', default=64, dest='accumulate_grad_batches', type=int)
     args = args_parser.parse_args()
 
-    assert args.model in ('quartznet', 'citrinet', 'conformer', 'fastconformer')
+    assert args.model in ('quartznet', 'citrinet', 'conformer', 'fastconformer', 'zipformer')
 
     if args.train_manifest.endswith('.jsonl'):
         # example for train_opus/manifest.jsonl from Golos Dataset
@@ -84,7 +84,7 @@ if __name__ == '__main__':
         model_name=args.model,
         corpus=train_manifest['text'].drop_duplicates().values,
         # pre_trained_tokenizer=f"models/{args.model}_tokenizer.json",
-        pre_trained_sd=pre_trained_sd,
+        # pre_trained_sd=pre_trained_sd,
     )
     pre_trained_model.model_tokenizer.save(f"models/{args.model}_tokenizer.json")
 
