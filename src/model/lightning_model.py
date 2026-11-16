@@ -122,7 +122,12 @@ class ASRLightning(pl.LightningModule):
             betas=(0.9, 0.99),
             clipping_scale=2.0,           # встроенный клиппинг по RMS
         )
-        scheduler = Eden(optimizer, warmup_batches=500)
+        scheduler = Eden(
+            optimizer,
+            lr_batches=5000,     # дефолт-рекомендация k2
+            lr_epochs=3,
+            warmup_batches=500,
+        )
         
         return (
             [optimizer],
