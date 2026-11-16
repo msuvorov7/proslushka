@@ -47,6 +47,7 @@ class ASRLightning(pl.LightningModule):
         # Forward pass
         # Выход модели: [batch, time, channels] -> [time, batch, channels] для CTCLoss
         logits, out_lengths = self.model(melspecs, input_lengths)
+        out_lengths = torch.clamp(out_lengths, max=logits.size(1))
         # (B, T', V) -> (T', B, V) для CTCLoss
         output = F.log_softmax(logits.transpose(0, 1), dim=2)
         

@@ -220,6 +220,7 @@ class CompactRelPositionalEncoding(nn.Module):
         assert length_factor >= 1.0
         self.pos_dim = pos_dim
         self.max_len = max_len
+        self.length_factor = length_factor
         self.dropout = nn.Dropout(dropout)  # в оригинале Dropout2
 
         pe = self._generate_pe(max_len)  # (2 * max_len - 1, pos_dim)
