@@ -88,23 +88,19 @@ class ASRModel:
                 'n_mels': 80,
             },
             'zipformer': {
-                'input_scale': 2,
-                'model': zipformer.ZipformerCTC(
-                    vocab_size=vocab_size,
-                    n_mels=80,
-                    d_model=256,
-                    n_layers=12,
-                    num_heads=4,
-                    query_head_dim=24,
-                    pos_head_dim=4,
-                    value_head_dim=24,
-                    pos_dim=128,
-                    feedforward_dim=512,
-                    conv_kernel_size=31,
-                    dropout=0.1,
-                ),
-                'n_mels': 80,
-            },
+            'input_scale': 4,
+            'model': zipformer.ZipformerCTC(
+                vocab_size=vocab_size,
+                n_mels=80,
+                encoder_dim=(192, 256, 256, 256, 256, 256),
+                num_encoder_layers=(2, 2, 2, 2, 2, 2),
+                downsampling_factor=(1, 2, 4, 8, 4, 2),
+                feedforward_dim=(512, 768, 768, 768, 768, 768),
+                num_heads=(4, 4, 4, 4, 4, 4),
+                dropout=0.1,
+            ),
+            'n_mels': 80,
+        },
         }
 
         self.asr_model = asr_config[model_name]

@@ -1,4 +1,5 @@
 import math
+import copy
 import random
 
 import torch
@@ -20,6 +21,15 @@ def conv_out_length(
         torch.div(lengths + 2 * padding - kernel_size, stride, rounding_mode="floor")
         + 1
     )
+
+
+def convert_num_channels(x: torch.Tensor, num_channels: int) -> torch.Tensor:
+    """Обрезка до num_channels или дополнение нулями"""
+    if num_channels <= x.size(-1):
+        return x[..., :num_channels]
+    pad = num_channels - x.size(-1)
+    zeros = torch.zeros(*x.shape[:-1], pad, dtype=x.dtype, device=x.device)
+    return torch.cat([x, zeros], dim=-1)
 
 
 class ConvNeXt(nn.Module):
@@ -677,61 +687,186 @@ class Zipformer2EncoderLayer(nn.Module):
         return src
 
 
+class SimpleDownsample(nn.Module):
+    """
+    Downsampling из Zipformer2: взвешенная сумма ds последовательных кадров,
+    веса = softmax(обучаемого bias). На старте — равномерное усреднение.
+    (B, T, C) -> (B, ceil(T/ds), C)
+    """
+
+    def __init__(self, channels: int, downsample: int):
+        super().__init__()
+        self.downsample = downsample
+        self.bias = nn.Parameter(torch.zeros(downsample))
+
+    def forward(self, src: torch.Tensor, lengths: torch.Tensor):
+        b, t, c = src.shape
+        ds = self.downsample
+        d_len = (t + ds - 1) // ds
+
+        # Паддинг до кратности ds повторением последнего кадра
+        idx = torch.arange(d_len * ds, device=src.device).clamp(max=t - 1)
+        src = src.index_select(1, idx)          # (B, d_len*ds, C)
+        
+        src = src.reshape(b, d_len, ds, c)
+        weights = self.bias.softmax(dim=0)
+        ans = (src * weights.view(1, 1, ds, 1)).sum(dim=2)
+        
+        lengths = (lengths + ds - 1) // ds
+        return ans, lengths
+
+
+class SimpleUpsample(nn.Module):
+    """Повторение каждого кадра `upsample` раз. (B, T, C) -> (B, T*upsample, C)."""
+
+    def __init__(self, num_channels: int, upsample: int):
+        super().__init__()
+        self.upsample = upsample
+
+    def forward(self, src: torch.Tensor) -> torch.Tensor:
+        b, t, c = src.shape
+        return (
+            src.unsqueeze(2)
+            .expand(b, t, self.upsample, c)
+            .reshape(b, t * self.upsample, c)
+        )
+
+
+class DownsampledZipformer2Encoder(nn.Module):
+    """
+    Обертка: downsample -> энкодер на пониженной частоте -> upsample -> bypass
+    к исходному входу. Вход/выход — одна и та же частота кадров.
+    """
+
+    def __init__(self, encoder: nn.Module, dim: int, downsample: int):
+        super().__init__()
+        self.downsample_factor = downsample
+        self.downsample = SimpleDownsample(dim, downsample)
+        self.encoder = encoder
+        self.upsample = SimpleUpsample(dim, downsample)
+        self.out_combiner = BypassModule(dim)
+
+    def forward(self, src: torch.Tensor, lengths: torch.Tensor):
+        src_orig = src
+        in_lengths = lengths  # длины в масштабе ВХОДА обертки
+
+        src, lengths = self.downsample(src, lengths)
+        src, _ = self.encoder(src, lengths)   # длины внутри — пониженные, наружу не идут
+
+        src = self.upsample(src)
+        src = src[:, : src_orig.size(1)]      # срез лишних кадров неполной группы
+
+        src = self.out_combiner(src_orig, src)
+        return src, in_lengths
+
+
+class Zipformer2Stack(nn.Module):
+    """Внутренний стек блоков со своим PE (оригинальный Zipformer2Encoder)."""
+
+    def __init__(self, encoder_layer: nn.Module, num_layers: int, pos_dim: int, pe_max_len: int = 2000):
+        super().__init__()
+        # В оригинале dropout_rate=0.15 зафиксирован независимо от общего dropout
+        self.encoder_pos = CompactRelPositionalEncoding(
+            pos_dim, dropout=0.15, max_len=pe_max_len
+        )
+        self.blocks = nn.ModuleList(
+            [copy.deepcopy(encoder_layer) for _ in range(num_layers)]
+        )
+        # В оригинале здесь задается расписание layerdrop для каждого блока
+        # через blocks[i].bypass.skip_rate (warmup-регуляризация) — опущено.
+
+    def forward(self, src: torch.Tensor, lengths: torch.Tensor):
+        pos_emb = self.encoder_pos(src)
+        for block in self.blocks:
+            src = block(src, pos_emb, lengths)
+        return src, lengths
+
+
 class ZipformerEncoder(nn.Module):
     """
-    Flat-вариант Zipformer2: один стек блоков без down/up-sampling.
-    (B, n_mels, T) -> (B, (T-7)//2, d_model): /2 по времени, /4 по частоте.
+    Топ-класс Zipformer2.
+    Все стеки потребляют поток на частоте после embed (/2), каждый внутри
+    работает на своей base/downsample_factor. Выход — на /4 (output downsample).
     """
 
     def __init__(
         self,
         n_mels: int = 80,
-        d_model: int = 256,
-        n_layers: int = 12,
-        num_heads: int = 4,
+        encoder_dim=(192, 256, 256, 256, 256, 256),
+        num_encoder_layers=(2, 2, 2, 2, 2, 2),
+        downsampling_factor=(1, 2, 4, 8, 4, 2),
+        feedforward_dim=(512, 768, 768, 768, 768, 768),
+        num_heads=(4, 4, 4, 4, 4, 4),
         query_head_dim: int = 24,
         pos_head_dim: int = 4,
         value_head_dim: int = 24,
         pos_dim: int = 128,
-        feedforward_dim: int = 512,
         conv_kernel_size: int = 31,
         dropout: float = 0.1,
-        pe_max_len: int = 5000,
+        output_downsampling_factor: int = 2,
+        pe_max_len: int = 2000,
     ):
         super().__init__()
-        self.subsampling = Conv2dSubsampling(d_model, n_mels, dropout)
-        self.pos_encoding = CompactRelPositionalEncoding(
-            pos_dim=pos_dim, dropout=dropout, max_len=pe_max_len
-        )
+        assert len(encoder_dim) == len(num_encoder_layers) == len(downsampling_factor)
+        self.encoder_dim = tuple(encoder_dim)
 
-        self.blocks = nn.ModuleList([
-            Zipformer2EncoderLayer(
-                embed_dim=d_model,
+        # Embed выводит в размерность ПЕРВОГО стека (дальше каналы несут сами стеки)
+        self.subsampling = Conv2dSubsampling(encoder_dim[0], n_mels, dropout)
+
+        encoders = []
+        for i in range(len(encoder_dim)):
+            layer = Zipformer2EncoderLayer(
+                embed_dim=encoder_dim[i],
                 pos_dim=pos_dim,
-                num_heads=num_heads,
+                num_heads=num_heads[i],
                 query_head_dim=query_head_dim,
                 pos_head_dim=pos_head_dim,
                 value_head_dim=value_head_dim,
-                feedforward_dim=feedforward_dim,
+                feedforward_dim=feedforward_dim[i],
                 dropout=dropout,
                 cnn_module_kernel=conv_kernel_size,
             )
-            for _ in range(n_layers)
-        ])
+            stack = Zipformer2Stack(layer, num_encoder_layers[i], pos_dim, pe_max_len)
+            if downsampling_factor[i] != 1:
+                stack = DownsampledZipformer2Encoder(
+                    stack, encoder_dim[i], downsampling_factor[i]
+                )
+            encoders.append(stack)
+        self.encoders = nn.ModuleList(encoders)
 
-        self.final_norm = BiasNorm(d_model)
+        self.downsample_output = SimpleDownsample(
+            max(encoder_dim), output_downsampling_factor
+        )
+        # В оригинальном топ-классе финальной нормы нет; оставляем как
+        # контракт CTC-пайплайна.
+        self.final_norm = BiasNorm(max(encoder_dim))
+
+    def _get_full_dim_output(self, outputs):
+        num_encoders = len(self.encoder_dim)
+        assert len(outputs) == num_encoders
+        output_dim = max(self.encoder_dim)
+        output_pieces = [outputs[-1]]
+        cur_dim = self.encoder_dim[-1]
+        for i in range(num_encoders - 2, -1, -1):
+            d = self.encoder_dim[i]
+            if d > cur_dim:
+                output_pieces.append(outputs[i][..., cur_dim:d])
+                cur_dim = d
+        assert cur_dim == output_dim
+        return torch.cat(output_pieces, dim=-1)
 
     def forward(self, melspecs: torch.Tensor, lengths: torch.Tensor):
-        """
-        melspecs: (B, n_mels, T) из DataLoader, lengths: (B,) в кадрах fbank.
-        """
-        x = melspecs.transpose(1, 2)                      # (B, T, n_mels)
-        x, lengths = self.subsampling(x, lengths)         # (B, (T-7)//2, d_model)
-        pos_emb = self.pos_encoding(x)                    # (1, 2T'-1, pos_dim)
+        x = melspecs.transpose(1, 2)                    # (B, T, n_mels)
+        x, lengths = self.subsampling(x, lengths)       # (B, T/2, d0)
 
-        for block in self.blocks:
-            x = block(x, pos_emb, lengths)
+        outputs = []
+        for i, module in enumerate(self.encoders):
+            x = convert_num_channels(x, self.encoder_dim[i])
+            x, lengths = module(x, lengths)             # lengths не меняются (base rate)
+            outputs.append(x)
 
+        x = self._get_full_dim_output(outputs)          # max(encoder_dim) каналов
+        x, lengths = self.downsample_output(x, lengths) # ×2 -> итоговый rate /4
         x = self.final_norm(x)
         return x, lengths
 
@@ -740,14 +875,10 @@ class ZipformerCTC(nn.Module):
     def __init__(self, vocab_size: int, **encoder_kwargs):
         super().__init__()
         self.encoder = ZipformerEncoder(**encoder_kwargs)
-        self.ctc_head = nn.Linear(encoder_kwargs["d_model"], vocab_size)
+        self.ctc_head = nn.Linear(max(encoder_kwargs["encoder_dim"]), vocab_size)
 
     def forward(self, melspecs: torch.Tensor, lengths: torch.Tensor):
-        # 1. Получаем акустические фичи
         x, out_lengths = self.encoder(melspecs, lengths)
-
-        # 2. Проецируем в токены
-        logits = self.ctc_head(x)               # (B, T', V)
+        logits = self.ctc_head(x)
         logits = apply_mask(logits, out_lengths)
-        # ВАЖНО: возвращаем out_lengths наружу
         return logits, out_lengths
