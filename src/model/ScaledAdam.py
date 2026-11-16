@@ -23,6 +23,7 @@ from typing import Dict, List, Optional, Tuple, Union
 import torch
 from torch import Tensor
 from torch.optim import Optimizer
+from torch.optim.lr_scheduler import LRScheduler
 
 
 class BatchedOptimizer(Optimizer):
@@ -897,3 +898,49 @@ class Eden(LRScheduler):
         )
 
         return [x * factor * warmup_factor for x in self.base_lrs]
+
+
+class LightningEden(LRScheduler):
+    """
+    Eden, совместимый с torch/Lightning.
+    - last_epoch = счетчик optimizer-шагов (Lightning тикает сам, interval='step');
+    - epoch — второй счетчик, обновляется вручную через step_epoch();
+    - оба счетчика сохраняются/восстанавливаются штатным state_dict().
+    """
+
+    def __init__(
+        self,
+        optimizer,
+        lr_batches: float,
+        lr_epochs: float,
+        warmup_batches: float = 500.0,
+        warmup_start: float = 0.5,
+    ):
+        # ВАЖНО: все атрибуты ДО super().__init__ — тот вызывает step()/get_lr()
+        self.lr_batches = lr_batches
+        self.lr_epochs = lr_epochs
+        self.warmup_batches = warmup_batches
+        self.warmup_start = warmup_start
+        self.epoch = 0
+        super().__init__(optimizer, last_epoch=-1)
+
+    def get_lr(self):
+        b = max(self.last_epoch, 0)
+        factor = (
+            (b**2 + self.lr_batches**2) / self.lr_batches**2
+        ) ** -0.25 * (
+            (self.epoch**2 + self.lr_epochs**2) / self.lr_epochs**2
+        ) ** -0.25
+        if b < self.warmup_batches:
+            factor *= self.warmup_start + (1.0 - self.warmup_start) * (
+                b / self.warmup_batches
+            )
+        return [base * factor for base in self.base_lrs]
+
+    def step_epoch(self, epoch: int | None = None):
+        """Вызывать из on_train_epoch_start(self.current_epoch).
+        Меняет только epoch-счетчик, batch-счетчик (last_epoch) не трогает."""
+        self.epoch = epoch if epoch is not None else self.epoch + 1
+        for pg, lr in zip(self.optimizer.param_groups, self.get_lr()):
+            pg["lr"] = lr
+        self._last_lr = [pg["lr"] for pg in self.optimizer.param_groups]

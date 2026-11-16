@@ -122,7 +122,7 @@ class ASRLightning(pl.LightningModule):
             betas=(0.9, 0.99),
             clipping_scale=2.0,           # встроенный клиппинг по RMS
         )
-        scheduler = Eden(
+        scheduler = LightningEden(
             optimizer,
             lr_batches=5000,     # дефолт-рекомендация k2
             lr_epochs=3,
@@ -139,3 +139,9 @@ class ASRLightning(pl.LightningModule):
                 }
             ]
         )
+
+    def on_train_epoch_start(self):
+        # достаем шедулер из self.lr_schedulers() или храним ссылку
+        for sch in self.lr_schedulers() if isinstance(self.lr_schedulers(), list) else [self.lr_schedulers()]:
+            if isinstance(sch, LightningEden):
+                sch.step_epoch(self.current_epoch)
