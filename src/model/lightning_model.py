@@ -8,7 +8,8 @@ from torchmetrics.text import WordErrorRate, CharErrorRate
 
 from pytorch_optimizer.optimizer.novograd import NovoGrad
 
-from src.model.scheduler import WarmupCosLR
+# from src.model.WarmupCosLR import WarmupCosLR
+from src.model.ScaledAdam import *
 
 
 class ASRLightning(pl.LightningModule):
@@ -101,19 +102,27 @@ class ASRLightning(pl.LightningModule):
         return valid_loss
 
     def configure_optimizers(self):
-        optimizer = NovoGrad(
-            self.parameters(),
-            lr=self.hparams.lr,
-            weight_decay=self.hparams.weight_decay,
-            betas=[0.8, 0.25],
-        )
+        # optimizer = NovoGrad(
+        #     self.parameters(),
+        #     lr=self.hparams.lr,
+        #     weight_decay=self.hparams.weight_decay,
+        #     betas=[0.8, 0.25],
+        # )
         
-        scheduler = WarmupCosLR(
-            optimizer=optimizer,
-            max_iter=self.t_max,
-            warmup_factor=1.0 / 10.0,
-            warmup_iters=min(1000, int(self.t_max * 0.05)), # Греем первые 5% шагов, но не больше 1000
+        # scheduler = WarmupCosLR(
+        #     optimizer=optimizer,
+        #     max_iter=self.t_max,
+        #     warmup_factor=1.0 / 10.0,
+        #     warmup_iters=min(1000, int(self.t_max * 0.05)), # Греем первые 5% шагов, но не больше 1000
+        # )
+
+        optimizer = ScaledAdam(
+            self.parameters(),
+            lr=self.hparams.lr,           # ориентир: 0.03–0.05 (как в рецептах k2 zipformer)
+            betas=(0.9, 0.99),
+            clipping_scale=2.0,           # встроенный клиппинг по RMS
         )
+        scheduler = Eden(optimizer, warmup_batches=500)
         
         return (
             [optimizer],
