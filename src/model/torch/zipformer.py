@@ -11,7 +11,7 @@ def apply_mask(x, lengths):
     """Обнуляет всё, что выходит за пределы реальной длины аудио"""
     max_len = x.size(1)
     mask = torch.arange(max_len, device=x.device).unsqueeze(0) < lengths.unsqueeze(1)
-    return x * mask.unsqueeze(-1).float()
+    return x.masked_fill(~mask.unsqueeze(-1), 0.0)
 
 
 def conv_out_length(
@@ -273,16 +273,18 @@ def rel_shift(x: torch.Tensor) -> torch.Tensor:
     ВНИМАНИЕ: направление зеркально v1-варианту, где было (T-1) - (j - i).
     """
     t = x.size(-2)
-    i = torch.arange(t, device=x.device).unsqueeze(1)  # query
-    j = torch.arange(t, device=x.device).unsqueeze(0)  # key
-    idx = (t - 1) + (j - i)  # (T, T), значения в [0, 2T-2]
-    return x.gather(-1, idx.expand(x.size(0), x.size(1), t, t))
-    # Zero-copy вариант из оригинала (для contiguous x):
-    # return x.as_strided(
-    #     (b, h, t, t),
-    #     (x.stride(0), x.stride(1), x.stride(2) - x.stride(3), x.stride(3)),
-    #     storage_offset=x.stride(3) * (t - 1),
-    # )
+    if torch.onnx.is_in_onnx_export():
+        # gather-путь: экспортируется в ONNX
+        i = torch.arange(t, device=x.device).unsqueeze(1)  # query
+        j = torch.arange(t, device=x.device).unsqueeze(0)  # key
+        idx = (t - 1) + (j - i)  # (T, T), значения в [0, 2T-2]
+        return x.gather(-1, idx.expand(x.size(0), x.size(1), t, t))
+    # zero-copy путь для трейна
+    return x.as_strided(
+        (x.size(0), x.size(1), t, t),
+        (x.stride(0), x.stride(1), x.stride(2) - x.stride(3), x.stride(3)),
+        storage_offset=x.stride(3) * (t - 1),
+    )
 
 
 class RelPositionMultiheadAttentionWeights(nn.Module):
