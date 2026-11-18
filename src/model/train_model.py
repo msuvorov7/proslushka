@@ -194,11 +194,14 @@ if __name__ == '__main__':
         (dummy_audio, dummy_lengths), # Передаем кортеж из аудио и длин
         f'models/{args.model}_{args.max_epochs}_epoch.onnx',
         input_names=['mel_spec', 'lengths'],
-        output_names=['output'],
+        output_names=['logits', 'out_lengths'],
         dynamic_axes={
+            # Входы
             'mel_spec': {0: 'batch_size', 2: 'time'},
             'lengths': {0: 'batch_size'},
-            'output': {0: 'batch_size', 2: 'time'}
+            # Выходы
+            'logits': {0: 'batch_size', 1: 'time'}, # Время теперь на индексе 1 (B, T, V)
+            'out_lengths': {0: 'batch_size'}
         }
     )
     logging.info('onnx model saved in models/')
