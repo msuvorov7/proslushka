@@ -52,15 +52,18 @@ class ConvolutionSubsamplingLayer(nn.Module):
         return ((lengths + 2 * self.padding - self.kernel_size) // self.stride) + 1
 
     def forward(self, inputs: torch.Tensor, lengths: torch.Tensor):
+        # inputs: (B, n_mels, T) -> (B, 1, n_mels, T)
         output = self.model(inputs.unsqueeze(1))
         
         # Пересчитываем длины дважды (т.к. две свертки)
         lengths = self._calc_out_length(lengths)
         lengths = self._calc_out_length(lengths)
-        
-        batch_size, channels, seq_len, emb_dim = output.size()
-        output = output.permute(0, 2, 1, 3)
-        output = output.reshape(batch_size, seq_len, channels * emb_dim)
+
+        # После Conv2d размерность: (B, Channels, n_mels_compressed, T_compressed)
+        batch_size, channels, n_mels_compressed, time_compressed = output.size()
+        # Нам нужно получить (B, T_compressed, Channels * n_mels_compressed)
+        output = output.permute(0, 3, 1, 2)
+        output = output.reshape(batch_size, time_compressed, channels * n_mels_compressed)
         return output, lengths
 
 
