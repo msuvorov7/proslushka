@@ -149,7 +149,6 @@ if __name__ == '__main__':
         log_every_n_steps=1,
         enable_checkpointing=True,
         enable_progress_bar=True,
-        gradient_clip_val=5,
         use_distributed_sampler=True,
     )
 
@@ -171,7 +170,7 @@ if __name__ == '__main__':
             ),
             t_max=int(len(train_dataset) / (args.batch_size * args.accumulate_grad_batches) + 1) * args.max_epochs,
             inputs_length_scale=pre_trained_model.asr_model['input_scale'],
-            lr=0.005,
+            optim_config=pre_trained_model.asr_model['optim_config'],
         )
 
         trainer.fit(

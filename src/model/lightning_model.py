@@ -6,11 +6,6 @@ import pytorch_lightning as pl
 from torchmetrics import MetricCollection
 from torchmetrics.text import WordErrorRate, CharErrorRate
 
-from pytorch_optimizer.optimizer.novograd import NovoGrad
-
-# from src.model.WarmupCosLR import WarmupCosLR
-from src.model.ScaledAdam import *
-
 
 class ASRLightning(pl.LightningModule):
     def __init__(
@@ -20,8 +15,7 @@ class ASRLightning(pl.LightningModule):
             decoder: nn.Module,
             t_max: int,
             inputs_length_scale: int,
-            lr: float = 0.05,
-            weight_decay: float = 0.001,
+            optim_config: dict,
         ):
         super().__init__()
 
@@ -30,8 +24,7 @@ class ASRLightning(pl.LightningModule):
         self.decoder = decoder
         self.t_max = t_max
         self.inputs_length_scale = inputs_length_scale
-        self.lr = lr
-        self.weight_decay = weight_decay
+        self.optim_config = optim_config
         
         self.save_hyperparameters(ignore=['model', 'criterion', 'decoder'])
         
@@ -102,33 +95,19 @@ class ASRLightning(pl.LightningModule):
         return valid_loss
 
     def configure_optimizers(self):
-        # optimizer = NovoGrad(
-        #     self.parameters(),
-        #     lr=self.hparams.lr,
-        #     weight_decay=self.hparams.weight_decay,
-        #     betas=[0.8, 0.25],
-        # )
-        
-        # scheduler = WarmupCosLR(
-        #     optimizer=optimizer,
-        #     max_iter=self.t_max,
-        #     warmup_factor=1.0 / 10.0,
-        #     warmup_iters=min(1000, int(self.t_max * 0.05)), # Греем первые 5% шагов, но не больше 1000
-        # )
+        opt_cfg = self.optim_config['optimizer']
+        sch_cfg = self.optim_config['scheduler']
 
-        optimizer = ScaledAdam(
-            self.parameters(),
-            lr=self.hparams.lr,           # ориентир: 0.03–0.05 (как в рецептах k2 zipformer)
-            betas=(0.9, 0.99),
-            clipping_scale=2.0,           # встроенный клиппинг по RMS
-        )
-        scheduler = LightningEden(
-            optimizer,
-            lr_batches=5000,     # дефолт-рекомендация k2
-            lr_epochs=3,
-            warmup_batches=500,
-        )
-        
+        # Инициализируем оптимизатор
+        optimizer = opt_cfg['cls'](self.parameters(), **opt_cfg['kwargs'])
+
+        # Инициализируем шедулер (подменяем T_MAX на реальное значение)
+        sched_kwargs = dict(sch_cfg['kwargs'])
+        if sched_kwargs.get('max_iter') == 'T_MAX':
+            sched_kwargs['max_iter'] = self.t_max
+            
+        scheduler = sch_cfg['cls'](optimizer=optimizer, **sched_kwargs)
+
         return (
             [optimizer],
             [
@@ -140,8 +119,21 @@ class ASRLightning(pl.LightningModule):
             ]
         )
 
+    def configure_gradient_clipping(self, optimizer, gradient_clip_val=None, gradient_clip_algorithm=None):
+        # Берем клиппинг из рецепта модели. Если там None, клиппинг отключается.
+        clip_val = self.optim_config.get('grad_clip', None)
+        if clip_val is not None:
+            self.clip_gradients(
+                optimizer, 
+                gradient_clip_val=clip_val, 
+                gradient_clip_algorithm=gradient_clip_algorithm
+            )
+
     def on_train_epoch_start(self):
-        # достаем шедулер из self.lr_schedulers() или храним ссылку
-        for sch in self.lr_schedulers() if isinstance(self.lr_schedulers(), list) else [self.lr_schedulers()]:
-            if isinstance(sch, LightningEden):
-                sch.step_epoch(self.current_epoch)
+        schedulers = self.lr_schedulers()
+        if not schedulers:
+            return
+        # Lightning возвращает шедулер или список шедулеров
+        for sched in schedulers if isinstance(schedulers, list) else [schedulers]:
+            if hasattr(sched, "step_epoch"):
+                sched.step_epoch(self.current_epoch)

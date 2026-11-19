@@ -2,6 +2,8 @@ import os
 import torch
 from tokenizers import Tokenizer
 
+from pytorch_optimizer.optimizer.novograd import NovoGrad
+
 import src.features.tokenizer as tokenizer
 
 import src.model.torch.quartznet as quartznet
@@ -9,6 +11,9 @@ import src.model.torch.citrinet as citrinet
 import src.model.torch.conformer as conformer
 import src.model.torch.fastconformer as fastconformer
 import src.model.torch.zipformer as zipformer
+
+from src.model.WarmupCosLR import WarmupCosLR
+from src.model.ScaledAdam import ScaledAdam, LightningEden
 
 
 class ASRModel:
@@ -48,6 +53,11 @@ class ASRModel:
                     out_channels=vocab_size,
                 ),
                 'n_mels': 64,
+                'optim_config': {
+                    'optimizer': {'cls': NovoGrad, 'kwargs': {'lr': 0.005, 'betas': [0.8, 0.25], 'weight_decay': 1e-4}},
+                    'scheduler': {'cls': WarmupCosLR, 'kwargs': {'max_iter': 'T_MAX', 'warmup_factor': 0.1, 'warmup_iters': 1000}},
+                    'grad_clip': 5.0, # Глобальный клиппинг для сверток
+                },
             },
             'citrinet': {
                 'input_scale': 8,
@@ -60,6 +70,11 @@ class ASRModel:
                     out_channels=vocab_size,
                 ),
                 'n_mels': 80,
+                'optim_config': {
+                    'optimizer': {'cls': NovoGrad, 'kwargs': {'lr': 0.005, 'betas': [0.8, 0.25], 'weight_decay': 1e-4}},
+                    'scheduler': {'cls': WarmupCosLR, 'kwargs': {'max_iter': 'T_MAX', 'warmup_factor': 0.1, 'warmup_iters': 1000}},
+                    'grad_clip': 5.0, # Глобальный клиппинг для сверток
+                },
             },
             'conformer': {
                 'input_scale': 4,
@@ -73,6 +88,11 @@ class ASRModel:
                     out_dim=vocab_size,
                 ),
                 'n_mels': 80,
+                'optim_config': {
+                    'optimizer': {'cls': NovoGrad, 'kwargs': {'lr': 0.005, 'betas': [0.8, 0.25], 'weight_decay': 1e-4}},
+                    'scheduler': {'cls': WarmupCosLR, 'kwargs': {'max_iter': 'T_MAX', 'warmup_factor': 0.1, 'warmup_iters': 1000}},
+                    'grad_clip': 5.0,
+                },
             },
             'fastconformer': {
                 'input_scale': 8,
@@ -86,27 +106,37 @@ class ASRModel:
                     out_dim=vocab_size,
                 ),
                 'n_mels': 80,
+                'optim_config': {
+                    'optimizer': {'cls': NovoGrad, 'kwargs': {'lr': 0.005, 'betas': [0.8, 0.25], 'weight_decay': 1e-4}},
+                    'scheduler': {'cls': WarmupCosLR, 'kwargs': {'max_iter': 'T_MAX', 'warmup_factor': 0.1, 'warmup_iters': 1000}},
+                    'grad_clip': 5.0,
+                },
             },
             'zipformer': {
-            'input_scale': 4,
-            'model': zipformer.ZipformerCTC(
-                vocab_size=vocab_size,
-                n_mels=80,
-                encoder_dim=(192, 224, 224, 224, 224, 224),
-                num_encoder_layers=(2, 2, 2, 2, 2, 2),
-                downsampling_factor=(1, 2, 4, 8, 4, 2),
-                feedforward_dim=(512, 640, 640, 640, 640, 640),
-                num_heads=(4, 4, 4, 4, 4, 4),
-                query_head_dim=24,
-                pos_head_dim=4,
-                value_head_dim=24,
-                pos_dim=128,
-                conv_kernel_size=31,
-                dropout=0.1,
-                output_downsampling_factor=2,
-            ),
-            'n_mels': 80,
-        },
+                'input_scale': 4,
+                'model': zipformer.ZipformerCTC(
+                    vocab_size=vocab_size,
+                    n_mels=80,
+                    encoder_dim=(192, 224, 224, 224, 224, 224),
+                    num_encoder_layers=(2, 2, 2, 2, 2, 2),
+                    downsampling_factor=(1, 2, 4, 8, 4, 2),
+                    feedforward_dim=(512, 640, 640, 640, 640, 640),
+                    num_heads=(4, 4, 4, 4, 4, 4),
+                    query_head_dim=24,
+                    pos_head_dim=4,
+                    value_head_dim=24,
+                    pos_dim=128,
+                    conv_kernel_size=31,
+                    dropout=0.1,
+                    output_downsampling_factor=2,
+                ),
+                'n_mels': 80,
+                'optim_config': {
+                    'optimizer': {'cls': ScaledAdam, 'kwargs': {'lr': 0.045, 'betas': (0.9, 0.99), 'clipping_scale': 2.0}},
+                    'scheduler': {'cls': LightningEden, 'kwargs': {'lr_batches': 5000, 'lr_epochs': 3, 'warmup_batches': 500}},
+                    'grad_clip': None,
+                },
+            },
         }
 
         self.asr_model = asr_config[model_name]
