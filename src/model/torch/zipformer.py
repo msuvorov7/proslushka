@@ -807,9 +807,11 @@ class ZipformerEncoder(nn.Module):
         dropout: float = 0.1,
         output_downsampling_factor: int = 2,
         pe_max_len: int = 2000,
+        gradient_checkpointing: bool = True,
     ):
         super().__init__()
         assert len(encoder_dim) == len(num_encoder_layers) == len(downsampling_factor)
+        self.gradient_checkpointing = gradient_checkpointing
         self.encoder_dim = tuple(encoder_dim)
 
         # Embed выводит в размерность ПЕРВОГО стека (дальше каналы несут сами стеки)
@@ -864,7 +866,12 @@ class ZipformerEncoder(nn.Module):
         outputs = []
         for i, module in enumerate(self.encoders):
             x = convert_num_channels(x, self.encoder_dim[i])
-            x, lengths = module(x, lengths)             # lengths не меняются (base rate)
+            if self.gradient_checkpointing and self.training:
+                x, lengths = torch.utils.checkpoint.checkpoint(
+                    module, x, lengths, use_reentrant=False
+                )
+            else:
+                x, lengths = module(x, lengths)             # lengths не меняются (base rate)
             outputs.append(x)
 
         x = self._get_full_dim_output(outputs)          # max(encoder_dim) каналов
