@@ -23,7 +23,7 @@ from typing import Dict, List, Optional, Tuple, Union
 import torch
 from torch import Tensor
 from torch.optim import Optimizer
-from torch.optim.lr_scheduler import LRScheduler
+from torch.optim.lr_scheduler import _LRScheduler
 
 
 class BatchedOptimizer(Optimizer):
@@ -900,7 +900,7 @@ class Eden(LRScheduler):
         return [x * factor * warmup_factor for x in self.base_lrs]
 
 
-class LightningEden(LRScheduler):
+class LightningEden(_LRScheduler):
     """
     Eden, совместимый с torch/Lightning.
     - last_epoch = счетчик optimizer-шагов (Lightning тикает сам, interval='step');
