@@ -89,7 +89,7 @@ class ASRModel:
                 ),
                 'n_mels': 80,
                 'optim_config': {
-                    'optimizer': {'cls': NovoGrad, 'kwargs': {'lr': 0.005, 'betas': [0.8, 0.25], 'weight_decay': 1e-4}},
+                    'optimizer': {'cls': NovoGrad, 'kwargs': {'lr': 0.05, 'betas': [0.8, 0.5], 'weight_decay': 1e-4}},
                     'scheduler': {'cls': WarmupCosLR, 'kwargs': {'max_iter': 'T_MAX', 'warmup_factor': 0.1, 'warmup_iters': 1000}},
                     'grad_clip': 5.0,
                 },
@@ -107,7 +107,7 @@ class ASRModel:
                 ),
                 'n_mels': 80,
                 'optim_config': {
-                    'optimizer': {'cls': NovoGrad, 'kwargs': {'lr': 0.005, 'betas': [0.8, 0.25], 'weight_decay': 1e-4}},
+                    'optimizer': {'cls': NovoGrad, 'kwargs': {'lr': 0.04, 'betas': [0.8, 0.5], 'weight_decay': 1e-3}},
                     'scheduler': {'cls': WarmupCosLR, 'kwargs': {'max_iter': 'T_MAX', 'warmup_factor': 0.1, 'warmup_iters': 1000}},
                     'grad_clip': 5.0,
                 },
