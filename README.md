@@ -5,6 +5,7 @@ ASR модель для работы с голосовыми сообщения�
 - [CitriNet](https://arxiv.org/pdf/2104.01721)
 - [Conformer](https://arxiv.org/pdf/2005.08100)
 - [FastConformer](https://arxiv.org/pdf/2305.05084)
+- [ZipFormer2](https://arxiv.org/pdf/2310.11230)
 
 ## Data
 Для обучения модели необходимо подготовить датафрейм вида:
@@ -56,7 +57,7 @@ python -m src.utils.transfer_learning \
 
 # обучение модели
 python -m src.model.train_model \
-    --model=[quartznet|citrinet|conformer] \
+    --model=[quartznet|citrinet|conformer...] \
     --dataset_path=../../Downloads/golos_opus/train_opus \
     --train_manifest=../../Downloads/golos_opus/train_opus/1hour.jsonl \
     --valid_manifest=../../Downloads/golos_opus/train_opus/1hour.jsonl \
