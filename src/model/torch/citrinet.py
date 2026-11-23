@@ -14,7 +14,7 @@ def apply_mask(x, lengths):
     """Обнуляет всё, что выходит за пределы реальной длины аудио"""
     max_len = x.size(2)
     mask = torch.arange(max_len, device=x.device).expand(x.size(0), -1) < lengths.unsqueeze(1)
-    return x * mask.unsqueeze(1).float()
+    return x.masked_fill(~mask.unsqueeze(1), 0.0)
 
 
 class MaskedSequential(nn.Sequential):
@@ -143,7 +143,10 @@ class CitriNet(nn.Module):
         
         x = self.C3(x)
         x = apply_mask(x, lengths)
-        return x
+        
+        # приводим к стандарту (B, T, Vocab)
+        x = x.transpose(1, 2)
+        return x, lengths
 
 
 class JasperBlock(nn.Module):

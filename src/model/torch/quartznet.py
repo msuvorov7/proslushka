@@ -3,6 +3,13 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
+def apply_mask(x, lengths):
+    """Обнуляет всё, что выходит за пределы реальной длины аудио"""
+    max_len = x.size(2)
+    mask = torch.arange(max_len, device=x.device).expand(x.size(0), -1) < lengths.unsqueeze(1)
+    return x.masked_fill(~mask.unsqueeze(1), 0.0)
+
+
 class QuartzNet(nn.Module):
     def __init__(
         self,
@@ -54,9 +61,9 @@ class QuartzNet(nn.Module):
 
             # print(i, num_in, num_out, pad, k)
 
-            b_bloks = [JasperBlock(num_in, num_out, k, pad, include_se_block=include_se_block), ]
+            b_bloks = [JasperBlock(num_in, num_out, k, pad, dropout=dropout, include_se_block=include_se_block), ]
             for rep in range(R_repeat):
-                b_bloks.append(JasperBlock(num_out, num_out, k, pad, include_se_block=include_se_block))
+                b_bloks.append(JasperBlock(num_out, num_out, k, pad, dropout=dropout, include_se_block=include_se_block))
 
             self.B.append(nn.Sequential(*b_bloks))
 
@@ -79,17 +86,25 @@ class QuartzNet(nn.Module):
 
         self.C4 = nn.Conv1d(1024, out_channels, kernel_size=1, stride=1)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor, lengths: torch.Tensor):
         x = self.C1(x)
+        lengths = ((lengths + 2 * 16 - 33) // 2) + 1
+        x = apply_mask(x, lengths)
 
         for block in self.B:
             x = block(x)
+            x = apply_mask(x, lengths)
 
         x = self.C2(x)
+        x = apply_mask(x, lengths)
         x = self.C3(x)
+        x = apply_mask(x, lengths)
         x = self.C4(x)
+        x = apply_mask(x, lengths)
 
-        return x
+        # приводим к стандарту (B, T, Vocab)
+        x = x.transpose(1, 2)
+        return x, lengths
 
 
 class JasperBlock(nn.Module):
@@ -182,44 +197,29 @@ class ConvBlock(nn.Module):
 
 
 class SqueezeExcite(nn.Module):
-    def __init__(
-            self,
-            in_channels: int,
-            reduction_ratio: int,
-            context_window: int = -1,
-            interpolation_mode: str = 'nearest',
-    ):
+    def __init__(self, in_channels: int, reduction_ratio: int):
         super().__init__()
-
-        self.context_window = context_window
-        self.interpolation_mode = interpolation_mode
+        self.gap = nn.AdaptiveAvgPool1d(1)
 
         self.fc = nn.Sequential(
-            nn.Linear(
+            nn.Conv1d(
                 in_channels,
                 in_channels // reduction_ratio,
+                kernel_size=1,
                 bias=False,
             ),
             nn.ReLU(inplace=True),
-            nn.Linear(
+            nn.Conv1d(
                 in_channels // reduction_ratio,
                 in_channels,
-                bias=False
+                kernel_size=1,
+                bias=False,
             ),
         )
-        self.gap = nn.AdaptiveAvgPool1d(output_size=1)
+
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        batch_size, channels, timestamps = x.size()
-
         y = self.gap(x)
-        y = y.transpose(1, -1)
         y = self.fc(y)
-        y = y.transpose(1, -1)
-
-        if self.context_window > 0:
-            y = F.interpolate(y, size=timestamps, mode=self.interpolation_mode)
-
-        y = self.sigmoid(y)
-        return x * y
+        return x * self.sigmoid(y)

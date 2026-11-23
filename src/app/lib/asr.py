@@ -161,13 +161,11 @@ class ASRModel:
             self.asr_encoder.get_inputs()[0].name: batch_specs,
             self.asr_encoder.get_inputs()[1].name: lengths
         }
-        model_output = self.asr_encoder.run(None, model_input)[0]
+        logits = self.asr_encoder.run(None, model_input)[0]
         
-        output = model_output.transpose(2, 0, 1)
-        output = log_softmax(output, axis=2)
-        output = output.transpose(1, 0, 2)
-
-        tokens = output.argmax(axis=2).tolist()
+        # logits уже в (B, T, V)
+        # Можно сразу делать argmax:
+        tokens = logits.argmax(axis=2).tolist()
 
         decoded_texts = []
         for seq in tokens:

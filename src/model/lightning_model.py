@@ -6,10 +6,6 @@ import pytorch_lightning as pl
 from torchmetrics import MetricCollection
 from torchmetrics.text import WordErrorRate, CharErrorRate
 
-from pytorch_optimizer.optimizer.novograd import NovoGrad
-
-from src.model.scheduler import WarmupCosLR
-
 
 class ASRLightning(pl.LightningModule):
     def __init__(
@@ -19,8 +15,7 @@ class ASRLightning(pl.LightningModule):
             decoder: nn.Module,
             t_max: int,
             inputs_length_scale: int,
-            lr: float = 0.05,
-            weight_decay: float = 0.001,
+            optim_config: dict,
         ):
         super().__init__()
 
@@ -29,8 +24,7 @@ class ASRLightning(pl.LightningModule):
         self.decoder = decoder
         self.t_max = t_max
         self.inputs_length_scale = inputs_length_scale
-        self.lr = lr
-        self.weight_decay = weight_decay
+        self.optim_config = optim_config
         
         self.save_hyperparameters(ignore=['model', 'criterion', 'decoder'])
         
@@ -45,14 +39,11 @@ class ASRLightning(pl.LightningModule):
         melspecs, texts, input_lengths, label_lengths = batch
 
         # Forward pass
-        # Выход модели: [batch, channels, time] -> [time, batch, channels] для CTCLoss
-        output = self.model(melspecs, input_lengths).permute(2, 0, 1)
-        output = F.log_softmax(output, dim=2)
-        
-        # Безопасный расчет длин для CTCLoss
-        out_lengths = (input_lengths.float() / self.inputs_length_scale).ceil().int()
-        # Защита: длина не может быть больше реального размера тензора
-        out_lengths = torch.clamp(out_lengths, max=output.shape[0])
+        # Выход модели: [batch, time, channels] -> [time, batch, channels] для CTCLoss
+        logits, out_lengths = self.model(melspecs, input_lengths)
+        out_lengths = torch.clamp(out_lengths, max=logits.size(1), min=1)
+        # (B, T', V) -> (T', B, V) для CTCLoss
+        output = F.log_softmax(logits.transpose(0, 1), dim=2)
         
         # Считаем лосс
         loss = self.criterion(
@@ -104,20 +95,19 @@ class ASRLightning(pl.LightningModule):
         return valid_loss
 
     def configure_optimizers(self):
-        optimizer = NovoGrad(
-            self.parameters(),
-            lr=self.hparams.lr,
-            weight_decay=self.hparams.weight_decay,
-            betas=[0.8, 0.25],
-        )
-        
-        scheduler = WarmupCosLR(
-            optimizer=optimizer,
-            max_iter=self.t_max,
-            warmup_factor=1.0 / 10.0,
-            warmup_iters=min(1000, int(self.t_max * 0.05)), # Греем первые 5% шагов, но не больше 1000
-        )
-        
+        opt_cfg = self.optim_config['optimizer']
+        sch_cfg = self.optim_config['scheduler']
+
+        # Инициализируем оптимизатор
+        optimizer = opt_cfg['cls'](self.parameters(), **opt_cfg['kwargs'])
+
+        # Инициализируем шедулер (подменяем T_MAX на реальное значение)
+        sched_kwargs = dict(sch_cfg['kwargs'])
+        if sched_kwargs.get('max_iter') == 'T_MAX':
+            sched_kwargs['max_iter'] = self.t_max
+            
+        scheduler = sch_cfg['cls'](optimizer=optimizer, **sched_kwargs)
+
         return (
             [optimizer],
             [
@@ -128,3 +118,22 @@ class ASRLightning(pl.LightningModule):
                 }
             ]
         )
+
+    def configure_gradient_clipping(self, optimizer, gradient_clip_val=None, gradient_clip_algorithm=None):
+        # Берем клиппинг из рецепта модели. Если там None, клиппинг отключается.
+        clip_val = self.optim_config.get('grad_clip', None)
+        if clip_val is not None:
+            self.clip_gradients(
+                optimizer, 
+                gradient_clip_val=clip_val, 
+                gradient_clip_algorithm=gradient_clip_algorithm
+            )
+
+    def on_train_epoch_start(self):
+        schedulers = self.lr_schedulers()
+        if not schedulers:
+            return
+        # Lightning возвращает шедулер или список шедулеров
+        for sched in schedulers if isinstance(schedulers, list) else [schedulers]:
+            if hasattr(sched, "step_epoch"):
+                sched.step_epoch(self.current_epoch)

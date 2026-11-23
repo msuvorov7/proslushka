@@ -14,7 +14,7 @@ import src.model.config as config
 import src.model.lightning_model as lightning_model
 
 torch.set_num_threads(8)
-# torch.set_float32_matmul_precision('medium')
+torch.set_float32_matmul_precision('medium')
 
 logging.basicConfig(
     level=logging.INFO,
@@ -52,7 +52,7 @@ if __name__ == '__main__':
     args_parser.add_argument('--accumulate_grad_batches', default=64, dest='accumulate_grad_batches', type=int)
     args = args_parser.parse_args()
 
-    assert args.model in ('quartznet', 'citrinet', 'conformer', 'fastconformer')
+    assert args.model in ('quartznet', 'citrinet', 'conformer', 'fastconformer', 'zipformer')
 
     if args.train_manifest.endswith('.jsonl'):
         # example for train_opus/manifest.jsonl from Golos Dataset
@@ -67,8 +67,8 @@ if __name__ == '__main__':
 
     logging.info('manifests loaded')
 
-    train_manifest = prepare_manifest(train_manifest, 0.5, 41)
-    valid_manifest = prepare_manifest(valid_manifest, 0.5, 41)
+    train_manifest = prepare_manifest(train_manifest, 1.5, 41)
+    valid_manifest = prepare_manifest(valid_manifest, 1.5, 41)
     logging.info(f'manifests prepared: {train_manifest.duration.sum() / 3600:.2f} hours')
 
     if args.model == 'quartznet':
@@ -112,7 +112,7 @@ if __name__ == '__main__':
         batch_size=args.batch_size,
         collate_fn=dataset.collate_fn,
         sampler=dataset.FastBatchSampler(np.argsort(train_manifest['duration_int'].values).tolist()[::-1], args.batch_size),
-        # num_workers=8,
+        num_workers=8,
     )
 
     valid_loader = torch.utils.data.DataLoader(
@@ -120,12 +120,11 @@ if __name__ == '__main__':
         batch_size=args.batch_size,
         shuffle=False,
         collate_fn=dataset.collate_fn,
-        # num_workers=8,
+        num_workers=8,
     )
 
     logger = pl.loggers.TensorBoardLogger(
         save_dir='lightning_logs/',
-        version='version_0',
     )
 
     checkpoint_callback = pl.callbacks.ModelCheckpoint(
@@ -149,7 +148,6 @@ if __name__ == '__main__':
         log_every_n_steps=1,
         enable_checkpointing=True,
         enable_progress_bar=True,
-        gradient_clip_val=5,
         use_distributed_sampler=True,
     )
 
@@ -171,7 +169,7 @@ if __name__ == '__main__':
             ),
             t_max=int(len(train_dataset) / (args.batch_size * args.accumulate_grad_batches) + 1) * args.max_epochs,
             inputs_length_scale=pre_trained_model.asr_model['input_scale'],
-            lr=0.005,
+            optim_config=pre_trained_model.asr_model['optim_config'],
         )
 
         trainer.fit(
@@ -194,11 +192,14 @@ if __name__ == '__main__':
         (dummy_audio, dummy_lengths), # Передаем кортеж из аудио и длин
         f'models/{args.model}_{args.max_epochs}_epoch.onnx',
         input_names=['mel_spec', 'lengths'],
-        output_names=['output'],
+        output_names=['logits', 'out_lengths'],
         dynamic_axes={
+            # Входы
             'mel_spec': {0: 'batch_size', 2: 'time'},
             'lengths': {0: 'batch_size'},
-            'output': {0: 'batch_size', 2: 'time'}
+            # Выходы
+            'logits': {0: 'batch_size', 1: 'time'}, # Время теперь на индексе 1 (B, T, V)
+            'out_lengths': {0: 'batch_size'}
         }
     )
     logging.info('onnx model saved in models/')
