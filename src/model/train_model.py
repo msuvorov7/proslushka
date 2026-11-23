@@ -14,7 +14,7 @@ import src.model.config as config
 import src.model.lightning_model as lightning_model
 
 torch.set_num_threads(8)
-# torch.set_float32_matmul_precision('medium')
+torch.set_float32_matmul_precision('medium')
 
 logging.basicConfig(
     level=logging.INFO,
@@ -67,8 +67,8 @@ if __name__ == '__main__':
 
     logging.info('manifests loaded')
 
-    train_manifest = prepare_manifest(train_manifest, 0.5, 41)
-    valid_manifest = prepare_manifest(valid_manifest, 0.5, 41)
+    train_manifest = prepare_manifest(train_manifest, 1.5, 41)
+    valid_manifest = prepare_manifest(valid_manifest, 1.5, 41)
     logging.info(f'manifests prepared: {train_manifest.duration.sum() / 3600:.2f} hours')
 
     if args.model == 'quartznet':
@@ -84,7 +84,7 @@ if __name__ == '__main__':
         model_name=args.model,
         corpus=train_manifest['text'].drop_duplicates().values,
         # pre_trained_tokenizer=f"models/{args.model}_tokenizer.json",
-        # pre_trained_sd=pre_trained_sd,
+        pre_trained_sd=pre_trained_sd,
     )
     pre_trained_model.model_tokenizer.save(f"models/{args.model}_tokenizer.json")
 
@@ -112,7 +112,7 @@ if __name__ == '__main__':
         batch_size=args.batch_size,
         collate_fn=dataset.collate_fn,
         sampler=dataset.FastBatchSampler(np.argsort(train_manifest['duration_int'].values).tolist()[::-1], args.batch_size),
-        # num_workers=8,
+        num_workers=8,
     )
 
     valid_loader = torch.utils.data.DataLoader(
@@ -120,12 +120,11 @@ if __name__ == '__main__':
         batch_size=args.batch_size,
         shuffle=False,
         collate_fn=dataset.collate_fn,
-        # num_workers=8,
+        num_workers=8,
     )
 
     logger = pl.loggers.TensorBoardLogger(
         save_dir='lightning_logs/',
-        version='version_0',
     )
 
     checkpoint_callback = pl.callbacks.ModelCheckpoint(
